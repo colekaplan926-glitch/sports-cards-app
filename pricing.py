@@ -102,9 +102,14 @@ _GRADE_RE    = {
 }
 
 
-def _confidence(n: int) -> str:
-    if n >= 6: return "high"
-    if n >= 3: return "medium"
+def _confidence(n: int, is_live: bool = True) -> str:
+    """LOW = no real comps, MEDIUM = 3–7 real comps, HIGH = 8+ real comps."""
+    if not is_live or n == 0:
+        return "low"
+    if n >= 8:
+        return "high"
+    if n >= 3:
+        return "medium"
     return "low"
 
 
@@ -137,7 +142,7 @@ def _make_result(comps: List[PriceComp], source_name: str, is_live: bool) -> Gra
     return GradeResult(
         median_price=med, avg_price=avg, low_price=lo, high_price=hi,
         comp_count=len(comps), date_range=dr,
-        confidence=_confidence(len(comps)),
+        confidence=_confidence(len(comps), is_live),
         source_name=source_name, is_live=is_live,
         comps=comps[:10],   # cap stored comps; median already uses all
     )
@@ -173,9 +178,9 @@ def _is_excluded(title: str, grade: str, include_autos: bool = False) -> bool:
 
 
 def _build_query(player_name: str, year: str, set_name: str,
-                 card_number: str, grade: str) -> str:
+                 card_number: str, grade: str, variation: str = "") -> str:
     """Build the search string for a card + grade combo."""
-    parts = [p for p in [year, player_name, set_name] if p]
+    parts = [p for p in [year, player_name, set_name, variation] if p]
     if card_number:
         parts.append(f"#{card_number}")
     if grade != "raw":
@@ -226,6 +231,7 @@ class PricingProvider:
         sport: str,
         raw_buy_price: float = 0,
         include_autos: bool = False,
+        variation: str = "",
     ) -> CardPrices:
         raise NotImplementedError
 
@@ -261,8 +267,8 @@ class SportsCardsProProvider(PricingProvider):
 
     def _fetch_grade(self, player_name: str, year: str, set_name: str,
                      card_number: str, grade: str,
-                     include_autos: bool) -> List[PriceComp]:
-        query = _build_query(player_name, year, set_name, card_number, grade)
+                     include_autos: bool, variation: str = "") -> List[PriceComp]:
+        query = _build_query(player_name, year, set_name, card_number, grade, variation)
         resp = requests.get(
             f"{self.BASE_URL}/cards/search",
             params={
@@ -298,13 +304,14 @@ class SportsCardsProProvider(PricingProvider):
         return comps
 
     def fetch_all_grades(self, player_name, year, set_name, card_number,
-                         sport, raw_buy_price=0, include_autos=False) -> CardPrices:
+                         sport, raw_buy_price=0, include_autos=False,
+                         variation="") -> CardPrices:
         grades = ["raw", "psa8", "psa9", "psa10"]
         results = {}
         with ThreadPoolExecutor(max_workers=4) as ex:
             futures = {
                 ex.submit(self._fetch_grade, player_name, year, set_name,
-                          card_number, g, include_autos): g
+                          card_number, g, include_autos, variation): g
                 for g in grades
             }
             for fut in as_completed(futures, timeout=25):
@@ -386,8 +393,8 @@ class ApifyEbayProvider(PricingProvider):
 
     def _fetch_grade(self, player_name: str, year: str, set_name: str,
                      card_number: str, grade: str,
-                     include_autos: bool) -> List[PriceComp]:
-        query    = _build_query(player_name, year, set_name, card_number, grade)
+                     include_autos: bool, variation: str = "") -> List[PriceComp]:
+        query    = _build_query(player_name, year, set_name, card_number, grade, variation)
         ebay_url = self._ebay_sold_url(query)
         items    = self._run_actor(ebay_url)
 
@@ -406,14 +413,14 @@ class ApifyEbayProvider(PricingProvider):
         return comps
 
     def fetch_all_grades(self, player_name, year, set_name, card_number,
-                         sport, raw_buy_price=0, include_autos=False) -> CardPrices:
+                         sport, raw_buy_price=0, include_autos=False,
+                         variation="") -> CardPrices:
         grades  = ["raw", "psa8", "psa9", "psa10"]
         results = {}
-        # Run all four grade queries in parallel to minimise wall-clock time
         with ThreadPoolExecutor(max_workers=4) as ex:
             futures = {
                 ex.submit(self._fetch_grade, player_name, year, set_name,
-                          card_number, g, include_autos): g
+                          card_number, g, include_autos, variation): g
                 for g in grades
             }
             for fut in as_completed(futures, timeout=FETCH_TIMEOUT + 10):
@@ -471,7 +478,8 @@ class MockPricingProvider(PricingProvider):
         )
 
     def fetch_all_grades(self, player_name, year, set_name, card_number,
-                         sport, raw_buy_price=0, include_autos=False) -> CardPrices:
+                         sport, raw_buy_price=0, include_autos=False,
+                         variation="") -> CardPrices:
         m10, m9, m8 = self._MULT.get(sport, self._DEFAULT)
         base = float(raw_buy_price or 0)
         return CardPrices(
@@ -527,11 +535,13 @@ class PricingOrchestrator:
         sport: str,
         raw_buy_price: float = 0,
         include_autos: bool = False,
+        variation: str = "",
     ) -> CardPrices:
         kwargs = dict(
             player_name=player_name, year=year, set_name=set_name,
             card_number=card_number, sport=sport,
             raw_buy_price=raw_buy_price, include_autos=include_autos,
+            variation=variation,
         )
 
         result: Optional[CardPrices] = None

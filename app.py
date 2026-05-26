@@ -165,14 +165,20 @@ def calculate():
         return jsonify({"error": "No data provided"}), 400
 
     try:
+        set_name  = data.get("set_name", "")
+        variation = (data.get("variation") or "").strip()
+        if variation and variation.lower() not in ("base", ""):
+            set_name = (set_name + " " + variation).strip()
+
         card_prices = PROVIDER_CHAIN.fetch(
             player_name   = data.get("player_name", ""),
             year          = data.get("year", ""),
-            set_name      = data.get("set_name", ""),
+            set_name      = set_name,
             card_number   = data.get("card_number", ""),
             sport         = data.get("sport", ""),
             raw_buy_price = float(data.get("raw_price", 0)),
             include_autos = data.get("include_autos", False),
+            variation     = "",   # already merged into set_name above
         )
     except Exception as exc:
         logger.error("Pricing fetch failed: %s", exc)
@@ -206,10 +212,15 @@ def add_to_watchlist():
         return jsonify({"error": "No data provided"}), 400
 
     try:
+        set_name  = data.get("set_name", "")
+        variation = (data.get("variation") or "").strip()
+        if variation and variation.lower() not in ("base", ""):
+            set_name = (set_name + " " + variation).strip()
+
         card_prices = PROVIDER_CHAIN.fetch(
             player_name   = data.get("player_name", ""),
             year          = data.get("year", ""),
-            set_name      = data.get("set_name", ""),
+            set_name      = set_name,
             card_number   = data.get("card_number", ""),
             sport         = data.get("sport", ""),
             raw_buy_price = float(data.get("raw_price", 0)),

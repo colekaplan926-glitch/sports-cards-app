@@ -134,37 +134,40 @@ def snipe_recommendation(
     min_roi: float,
     min_profit: float,
     confidence: str,
+    has_real_data: bool = True,
 ) -> tuple[str, str]:
     """
     Returns (recommendation, reason).
 
-    BUY   — meets thresholds AND confidence is medium or high.
-    WATCH — meets thresholds BUT confidence is low (< 3 comps).
-    PASS  — does not meet thresholds.
+    BUY   — meets thresholds AND confidence is medium or high AND real comps exist.
+    WATCH — meets thresholds BUT confidence is low (< 3 real comps).
+    PASS  — does not meet thresholds OR no real comp data.
     """
+    if not has_real_data:
+        return "PASS", (
+            "No real sold comps available for this card. "
+            "Cannot make a data-driven recommendation."
+        )
+
     meets = best_roi >= min_roi and best_profit >= min_profit
 
     if not meets:
         if best_roi < min_roi:
-            reason = (
-                f"Best ROI is {best_roi:.1f}%, below your {min_roi:.0f}% minimum."
-            )
+            reason = f"Best ROI is {best_roi:.1f}%, below your {min_roi:.0f}% minimum."
         else:
-            reason = (
-                f"Best profit is ${best_profit:.2f}, below your ${min_profit:.2f} minimum."
-            )
+            reason = f"Best profit is ${best_profit:.2f}, below your ${min_profit:.2f} minimum."
         return "PASS", reason
 
     if confidence == "low":
         reason = (
             f"Numbers look good ({best_roi:.0f}% ROI, ${best_profit:.2f} profit) "
-            f"but fewer than 3 sold comps found. Verify manually."
+            f"but fewer than 3 real sold comps found. Verify manually before buying."
         )
         return "WATCH", reason
 
     reason = (
         f"{best_roi:.0f}% ROI and ${best_profit:.2f} profit "
-        f"with {confidence} confidence."
+        f"with {confidence} confidence ({confidence} comp count)."
     )
     return "BUY", reason
 
@@ -342,20 +345,27 @@ def analyze_listing(
     confidence = _overall_confidence(prices)
     be_grade   = break_even_grade(results)
 
-    rec, reason = snipe_recommendation(
-        best_roi   = best["roi"],
-        best_profit= best["profit"],
-        min_roi    = float(search.get("min_roi", 20)),
-        min_profit = float(search.get("min_profit", 0)),
-        confidence = confidence,
+    has_real_data = any(
+        prices[g].get("is_live") and prices[g].get("comp_count", 0) > 0
+        for g in ("raw", "psa8", "psa9", "psa10")
     )
 
-    # Append break-even info to reason
-    if be_grade != "none":
-        be_label = {"psa8": "PSA 8", "psa9": "PSA 9", "psa10": "PSA 10"}[be_grade]
-        reason += f" Break-even: {be_label}."
-    else:
-        reason += " No grade breaks even at this price."
+    rec, reason = snipe_recommendation(
+        best_roi      = best["roi"],
+        best_profit   = best["profit"],
+        min_roi       = float(search.get("min_roi", 20)),
+        min_profit    = float(search.get("min_profit", 0)),
+        confidence    = confidence,
+        has_real_data = has_real_data,
+    )
+
+    # Append break-even info to reason when we have real data
+    if has_real_data:
+        if be_grade != "none":
+            be_label = {"psa8": "PSA 8", "psa9": "PSA 9", "psa10": "PSA 10"}[be_grade]
+            reason += f" Must reach at least {be_label} to break even."
+        else:
+            reason += " No grading path breaks even at this price."
 
     return DealAnalysis(
         listing        = listing,
@@ -365,7 +375,7 @@ def analyze_listing(
         reason         = reason,
         break_even     = be_grade,
         confidence     = confidence,
-        is_mock        = listing.is_mock or not prices["psa10"].get("is_live", False),
+        is_mock        = listing.is_mock or not has_real_data,
         player_name    = _parse_player(listing.title, players),
         year           = _parse_year(listing.title),
         set_name       = "",   # hard to parse reliably without ML

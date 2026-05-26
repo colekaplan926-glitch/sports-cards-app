@@ -23,11 +23,13 @@ const fmt$ = v => {
 const fmtPct   = v => { const n = parseFloat(v); return isNaN(n) ? "0.0%" : n.toFixed(1) + "%"; };
 const profCls  = v => parseFloat(v) >= 0 ? "text-green" : "text-red";
 const confCls  = c => ({ high: "conf-high", medium: "conf-medium", low: "conf-low" }[c] || "conf-low");
+const capFirst = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+const truncate = (s, n) => s && s.length > n ? s.slice(0, n) + "…" : (s || "");
 
 // ── Calculate ──────────────────────────────────────────
 async function calculate() {
   const fields = [
-    "player_name", "year", "set_name", "card_number", "sport",
+    "player_name", "year", "set_name", "card_number", "sport", "variation",
     "raw_price", "grading_cost", "shipping_fees", "selling_fee_pct",
   ];
   const data = {};
@@ -42,10 +44,9 @@ async function calculate() {
   }
 
   const btn = document.getElementById("calc-btn");
-  btn.disabled    = true;
-  btn.innerHTML   = '<span class="spinner"></span> Fetching comps…';
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="spinner"></span> Fetching comps…';
 
-  // Show loading skeleton in results column
   document.getElementById("results-placeholder").style.display = "none";
   document.getElementById("results-loading").style.display     = "flex";
   document.getElementById("results-content").style.display     = "none";
@@ -62,7 +63,7 @@ async function calculate() {
     renderResults(result, data);
   } catch (e) {
     showToast("Calculation failed. Check your inputs.", "error");
-    document.getElementById("results-loading").style.display  = "none";
+    document.getElementById("results-loading").style.display     = "none";
     document.getElementById("results-placeholder").style.display = "flex";
   } finally {
     btn.disabled  = false;
@@ -75,35 +76,49 @@ function renderResults(r, data) {
   document.getElementById("results-loading").style.display  = "none";
   document.getElementById("results-content").style.display = "flex";
 
-  const { results, best, recommendation, prices, costs } = r;
+  const { results, best, recommendation, prices, costs, why, break_even_label, has_real_data } = r;
 
-  // Card title
-  const parts  = [data.year, data.player_name].filter(Boolean).join(" ");
-  const cardTitle = parts
+  const parts     = [data.year, data.player_name].filter(Boolean).join(" ");
+  const variation = data.variation && data.variation !== "Base" ? ` [${data.variation}]` : "";
+  const cardTitle = (parts
     + (data.set_name    ? " – " + data.set_name    : "")
     + (data.card_number ? " #"  + data.card_number : "")
-    || "Card";
+    + variation) || "Card";
 
   // ── Recommendation banner ──
   const recMap = {
-    "Strong Buy":   { cls: "rec-strong-buy",  icon: "📈", color: "text-green"  },
-    "Possible Buy": { cls: "rec-possible-buy", icon: "🤔", color: "text-yellow" },
-    "Avoid":        { cls: "rec-avoid",        icon: "🚫", color: "text-red"    },
+    "Strong Buy":       { cls: "rec-strong-buy",   icon: "📈", color: "text-green"  },
+    "Possible Buy":     { cls: "rec-possible-buy",  icon: "🤔", color: "text-yellow" },
+    "Avoid":            { cls: "rec-avoid",          icon: "🚫", color: "text-red"   },
+    "Insufficient Data":{ cls: "rec-insufficient",   icon: "⚠️", color: "text-muted" },
   };
   const rm  = recMap[recommendation] || recMap["Avoid"];
   const rec = document.getElementById("rec-banner");
   rec.className = "recommendation-banner " + rm.cls;
+
+  const breakEvenHtml = (has_real_data && break_even_label)
+    ? `<div class="rec-break-even">
+         ⬆ Must reach at least <strong>${break_even_label}</strong> to profit.
+       </div>`
+    : "";
+
+  const whyHtml = why
+    ? `<div class="rec-why">${escHtml(why)}</div>`
+    : "";
+
   rec.innerHTML = `
     <div class="rec-icon">${rm.icon}</div>
-    <div>
+    <div style="flex:1">
       <div class="rec-label">Recommendation</div>
       <div class="rec-title ${rm.color}">${recommendation}</div>
-      <div class="rec-sub">${cardTitle} · Best: ${best.label}</div>
+      <div class="rec-sub">${escHtml(cardTitle)}${has_real_data ? " · Best: " + best.label : ""}</div>
+      ${whyHtml}
+      ${breakEvenHtml}
     </div>
-    <div style="margin-left:auto;text-align:right">
+    <div style="margin-left:auto;text-align:right;flex-shrink:0">
       <div class="stat-label">Best ROI</div>
-      <div class="stat-value ${rm.color}">${fmtPct(best.roi)}</div>
-      <div class="stat-sub">Profit: ${fmt$(best.profit)}</div>
+      <div class="stat-value ${rm.color}">${has_real_data ? fmtPct(best.roi) : "—"}</div>
+      <div class="stat-sub">${has_real_data ? "Profit: " + fmt$(best.profit) : "No live data"}</div>
     </div>`;
 
   // ── Price cards ──
@@ -118,7 +133,7 @@ function renderResults(r, data) {
   ];
   document.getElementById("results-tbody").innerHTML = rows.map(row => {
     const g      = results[row.key];
-    const isBest = row.key === best.key;
+    const isBest = row.key === best.key && has_real_data;
     const star   = isBest ? ' <span class="best-badge">★ Best</span>' : "";
     return `<tr class="${isBest ? "row-best" : ""}">
       <td><span class="grade-badge ${row.cls}">${row.label}</span>${star}</td>
@@ -143,37 +158,53 @@ function renderPriceCards(prices) {
   ];
 
   document.getElementById("price-cards-grid").innerHTML = gradeOrder.map(({ key, label, valCls }) => {
-    const g = prices[key];
-    const isLive  = g.is_live && g.comp_count >= 1;
-    const srcBadge = isLive
+    const g      = prices[key];
+    const isLive = g.is_live && g.comp_count >= 1;
+
+    const srcBadge  = isLive
       ? `<span class="live-badge">● Live</span>`
       : `<span class="est-badge">~ Est</span>`;
-    const ccBadge = isLive
+    const ccBadge   = isLive
       ? `<span class="comp-count">${g.comp_count} comp${g.comp_count !== 1 ? "s" : ""}</span>`
       : "";
     const confBadge = `<span class="confidence-badge ${confCls(g.confidence)}">${capFirst(g.confidence)}</span>`;
 
-    // Comp list (collapsed by default)
-    const compRows = (g.comps || []).filter(c => c.price > 0).map(c =>
-      `<tr>
-        <td>${c.url ? `<a href="${c.url}" target="_blank" rel="noopener" class="comp-link">${truncate(c.title, 55)}</a>` : truncate(c.title, 55)}</td>
-        <td class="fw-bold">${fmt$(c.price)}</td>
-        <td class="text-muted">${c.date ? c.date.slice(0,10) : "—"}</td>
-      </tr>`
-    ).join("");
+    // Comps section
+    let compsSection = "";
+    if (!isLive) {
+      compsSection = `<div class="no-comps-msg">
+        No live comps found — using estimated pricing model.
+      </div>`;
+    } else {
+      const realComps = (g.comps || []).filter(c => c.price > 0 && !c.title.startsWith("[estimated]"));
+      if (realComps.length) {
+        const compRows = realComps.map(c =>
+          `<tr>
+            <td>${c.url
+              ? `<a href="${c.url}" target="_blank" rel="noopener" class="comp-link">${escHtml(truncate(c.title, 50))}</a>`
+              : escHtml(truncate(c.title, 50))}</td>
+            <td class="fw-bold">${fmt$(c.price)}</td>
+            <td class="text-muted">${c.date ? c.date.slice(0,10) : "—"}</td>
+            <td class="text-muted">${escHtml(g.source_name || "—")}</td>
+          </tr>`
+        ).join("");
 
-    const compsSection = compRows
-      ? `<div class="comp-expander">
-           <button class="comp-toggle" onclick="toggleComps(this)">▸ Show comps (${g.comp_count})</button>
-           <div class="comp-list" style="display:none">
-             <table class="comp-table">
-               <thead><tr><th>Title</th><th>Price</th><th>Date</th></tr></thead>
-               <tbody>${compRows}</tbody>
-             </table>
-             ${g.date_range !== "—" ? `<p class="comp-range">Sales: ${g.date_range}</p>` : ""}
-           </div>
-         </div>`
-      : "";
+        compsSection = `<div class="comp-expander">
+          <button class="comp-toggle" onclick="toggleComps(this)">
+            ▸ Live Sold Comps (${g.comp_count})
+          </button>
+          <div class="comp-list" style="display:none">
+            <table class="comp-table">
+              <thead><tr><th>Title</th><th>Sold</th><th>Date</th><th>Source</th></tr></thead>
+              <tbody>${compRows}</tbody>
+            </table>
+            ${g.date_range && g.date_range !== "—"
+              ? `<p class="comp-range">Sales window: ${g.date_range}</p>`
+              : ""}
+          </div>
+        </div>`;
+      }
+    }
 
     return `<div class="price-card">
       <div class="price-card-header">
@@ -186,7 +217,7 @@ function renderPriceCards(prices) {
         : ""}
       <div class="price-card-footer">
         ${confBadge}
-        <span class="price-card-source">${g.source_name}</span>
+        <span class="price-card-source">${escHtml(g.source_name)}</span>
       </div>
       ${compsSection}
     </div>`;
@@ -202,7 +233,7 @@ function toggleComps(btn) {
 
 // ── Formulas ───────────────────────────────────────────
 function renderFormulas(results, costs, prices) {
-  const { raw_buy, grading, shipping, fee_pct, graded_cost } = costs;
+  const { raw_price: raw_buy, grading, shipping, fee_pct, graded_cost } = costs;
   const raw = results.raw;
   const p10 = results.psa10;
   const feeLabel = `${fee_pct}%`;
@@ -260,8 +291,8 @@ function renderFormulas(results, costs, prices) {
 
 // ── Watchlist ──────────────────────────────────────────
 async function addToWatchlist() {
-  if (!calcData)               { showToast("Calculate first before saving", "error"); return; }
-  if (!calcData.player_name)   { showToast("Enter a player name before saving", "error"); return; }
+  if (!calcData)             { showToast("Calculate first before saving", "error"); return; }
+  if (!calcData.player_name) { showToast("Enter a player name before saving", "error"); return; }
   try {
     const res = await fetch("/api/watchlist", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -290,14 +321,14 @@ function renderWatchlist(cards) {
       + (card.set_name    ? " – " + card.set_name    : "")
       + (card.card_number ? " #"  + card.card_number : "");
     return `<tr>
-      <td><div class="fw-bold">${card.player_name || "—"}</div><div class="cell-sub">${line}</div></td>
-      <td>${card.sport || "—"}</td>
+      <td><div class="fw-bold">${escHtml(card.player_name || "—")}</div><div class="cell-sub">${escHtml(line)}</div></td>
+      <td>${escHtml(card.sport || "—")}</td>
       <td class="fw-bold">${fmt$(card.raw_price)}</td>
       <td class="fw-bold">${fmt$(card.psa10_price)}</td>
       <td class="${profCls(card.best_profit)} fw-bold">${fmt$(card.best_profit)}</td>
       <td class="${profCls(card.best_roi)} fw-bold">${fmtPct(card.best_roi)}</td>
-      <td class="fw-bold fs-sm">${card.best_option || "—"}</td>
-      <td><span class="badge ${recBadgeCls(card.recommendation)}">${card.recommendation}</span></td>
+      <td class="fw-bold fs-sm">${escHtml(card.best_option || "—")}</td>
+      <td><span class="badge ${recBadgeCls(card.recommendation)}">${escHtml(card.recommendation)}</span></td>
       <td><button class="btn btn-danger btn-sm watchlist-action" onclick="deleteCard(${card.id})">Remove</button></td>
     </tr>`;
   }).join("");
@@ -340,6 +371,11 @@ function resetForm() {
   document.getElementById("results-content").style.display     = "none";
 }
 
-// ── Utilities ──────────────────────────────────────────
-const capFirst = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
-const truncate = (s, n) => s.length > n ? s.slice(0, n) + "…" : s;
+// ── Shared utilities ───────────────────────────────────
+function escHtml(str) {
+  return String(str == null ? "" : str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

@@ -378,11 +378,4 @@ async function dismissDeal(did, btn) {
   }
 }
 
-// ── Utilities ──────────────────────────────────────────
-function escHtml(str) {
-  return String(str == null ? "" : str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+// escHtml, capFirst, truncate are defined in app.js (loaded first)
