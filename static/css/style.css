@@ -1081,6 +1081,244 @@ tbody tr:hover .watchlist-action { opacity: 1; }
   box-shadow: var(--shadow);
 }
 
+/* ═══════════════════════════════════════════════════════
+   SIGNAL CARD + CARDGRADE SCORE (calculator results)
+═══════════════════════════════════════════════════════ */
+
+.signal-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.signal-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.cg-ring {
+  width: 68px; height: 68px;
+  border-radius: 50%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: all 0.3s;
+}
+
+.cg-score-num   { font-size: 1.4rem; font-weight: 900; line-height: 1; }
+.cg-ring-label  { font-size: 7px; font-weight: 700; text-transform: uppercase;
+                  letter-spacing: 0.08em; margin-top: 3px; opacity: 0.75; }
+
+.cg-elite    { background: rgba(0,200,150,0.12); color: var(--green);        border-color: rgba(0,200,150,0.45); }
+.cg-solid    { background: rgba(0,212,170,0.10); color: var(--accent2);      border-color: rgba(0,212,170,0.4); }
+.cg-possible { background: rgba(255,200,87,0.10); color: var(--yellow);      border-color: rgba(255,200,87,0.4); }
+.cg-risky    { background: rgba(255,149,0,0.10);  color: #ff9500;            border-color: rgba(255,149,0,0.35); }
+.cg-avoid    { background: rgba(255,95,126,0.10); color: var(--red);         border-color: rgba(255,95,126,0.35); }
+.cg-nodata   { background: rgba(139,146,184,0.06); color: var(--text-muted); border-color: rgba(139,146,184,0.2); }
+
+.signal-center { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.rec-pill-new {
+  display: inline-flex; align-items: center;
+  padding: 5px 18px;
+  border-radius: 30px;
+  font-size: 14px; font-weight: 900; letter-spacing: 0.06em;
+  text-transform: uppercase; width: fit-content;
+}
+
+.rec-pill-new.strong-buy { background: linear-gradient(135deg,var(--green),var(--accent2)); color: #000; }
+.rec-pill-new.possible   { background: var(--yellow); color: #000; }
+.rec-pill-new.pass       { background: var(--surface2); color: var(--text-muted);
+                            border: 1px solid var(--border); }
+.rec-pill-new.insuf      { background: var(--surface2); color: var(--text-muted);
+                            border: 1px dashed var(--border); }
+
+.signal-sub   { font-size: 12px; color: var(--text-muted); white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis; }
+.signal-text  { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+.signal-right { text-align: right; flex-shrink: 0; }
+.signal-roi-num    { font-size: 1.8rem; font-weight: 900; line-height: 1; }
+.signal-profit-sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+.signal-chips { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
+
+/* ── Chip system ── */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text-muted);
+  white-space: nowrap;
+}
+.chip-green  { background: rgba(0,200,150,0.10); color: var(--green);  border-color: rgba(0,200,150,0.28); }
+.chip-yellow { background: rgba(255,200,87,0.10); color: var(--yellow); border-color: rgba(255,200,87,0.28); }
+.chip-red    { background: rgba(255,95,126,0.10); color: var(--red);    border-color: rgba(255,95,126,0.28); }
+.chip-accent { background: rgba(108,99,255,0.10); color: var(--accent); border-color: rgba(108,99,255,0.28); }
+
+/* ── Grade chips row ── */
+.grade-chips-row {
+  display: grid;
+  grid-template-columns: repeat(4,1fr);
+  gap: 8px;
+}
+
+@media (max-width: 560px) { .grade-chips-row { grid-template-columns: repeat(2,1fr); } }
+
+.grade-chip-v2 {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  transition: border-color 0.2s;
+}
+.grade-chip-v2:hover { border-color: var(--accent); }
+
+.grade-chip-header {
+  display: flex; align-items: center; gap: 5px; margin-bottom: 6px;
+}
+.grade-chip-label {
+  font-size: 10px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.live-dot { width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0; }
+.est-dot  { width:6px;height:6px;border-radius:50%;background:var(--text-muted);flex-shrink:0; }
+
+.grade-chip-value  { font-size: 1.05rem; font-weight: 800; margin-bottom: 2px; }
+.grade-chip-profit { font-size: 11px; font-weight: 600; }
+.grade-chip-conf   { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Expandable sections ── */
+.expand-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.expand-trigger {
+  width: 100%; background: var(--surface); border: none;
+  padding: 10px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; font-size: 13px; font-weight: 600;
+  color: var(--text-muted); font-family: inherit; text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.expand-trigger:hover { background: var(--surface2); color: var(--text); }
+.expand-trigger.open  { color: var(--text); background: var(--surface2); }
+.expand-arrow { font-size: 11px; transition: transform 0.2s; }
+.expand-trigger.open .expand-arrow { transform: rotate(180deg); }
+
+.expand-body {
+  padding: 1rem; background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+/* ── Comps by grade in expand section ── */
+.comp-grade-section { margin-bottom: 1.25rem; }
+.comp-grade-section:last-child { margin-bottom: 0; }
+.comp-grade-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+/* ── Source badges ── */
+.source-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 7px; border-radius: 4px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;
+}
+.source-live { background: rgba(0,212,170,0.12); color: var(--accent2); border: 1px solid rgba(0,212,170,0.3); }
+.source-scp  { background: rgba(108,99,255,0.12); color: var(--accent); border: 1px solid rgba(108,99,255,0.3); }
+.source-demo { background: rgba(255,200,87,0.08); color: var(--yellow); border: 1px solid rgba(255,200,87,0.2); }
+
+/* ═══════════════════════════════════════════════════════
+   DEAL CARDS V2 (Snipe Deals page)
+═══════════════════════════════════════════════════════ */
+
+.deal-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+@media (max-width: 700px) { .deal-cards-grid { grid-template-columns: 1fr; } }
+
+.deal-card-v2 {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: box-shadow 0.2s;
+}
+.deal-card-v2:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+.deal-card-v2.buy   { border-left-color: var(--green); }
+.deal-card-v2.watch { border-left-color: var(--yellow); }
+.deal-card-v2.pass  { border-left-color: var(--border); }
+
+.deal-header-v2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.deal-title-v2 {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4;
+}
+
+.deal-metrics-v2 {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.deal-metric-item {
+  flex: 1; text-align: center; padding: 8px 4px;
+  border-right: 1px solid var(--border);
+}
+.deal-metric-item:last-child { border-right: none; }
+.deal-metric-label { font-size: 9px; font-weight: 700; color: var(--text-muted);
+                     text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+.deal-metric-val   { font-size: 0.95rem; font-weight: 800; }
+
+.deal-chips-v2  { display: flex; gap: 4px; flex-wrap: wrap; }
+.deal-actions-v2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+
+.cg-score-sm {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%;
+  font-size: 11px; font-weight: 900; flex-shrink: 0;
+  border: 2px solid transparent;
+}
+
+/* ── Empty state v2 ── */
+.empty-state-v2 {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 4rem 1rem;
+  text-align: center; gap: 10px;
+}
+.empty-state-v2 .empty-icon  { font-size: 2.5rem; }
+.empty-state-v2 .empty-title { font-size: 1rem; font-weight: 700; color: var(--text); }
+
+.api-hint {
+  font-size: 11px; font-family: 'Courier New', monospace; color: var(--accent);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 12px; margin-top: 4px;
+}
+
+/* ── Scan status bar ── */
+.scan-status-bar {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 14px;
+  font-size: 12px; display: flex; align-items: center; gap: 8px;
+}
+
+/* ─────────────────────────────────────────────────── */
 .modal-title {
   font-size: 1.1rem;
   font-weight: 700;

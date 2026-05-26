@@ -223,97 +223,112 @@ function renderDealCards(deals) {
     return;
   }
   empty.style.display = "none";
+  grid.innerHTML = deals.map(dealCardHtml).join("");
+}
 
-  const hasMock = deals.some(d => d.is_mock);
-  const mockBanner = hasMock
-    ? `<div class="mock-banner" style="grid-column:1/-1">
-         &#9888; Some deals show estimated (mock) pricing — connect APIFY_TOKEN or SPORTSCARDSPRO_API_KEY for real sold comp data.
-       </div>`
+// ── CG score ring class ────────────────────────────────
+function cgRingClass(score) {
+  const n = parseInt(score) || 0;
+  if (n >= 85) return "cg-elite";
+  if (n >= 70) return "cg-solid";
+  if (n >= 55) return "cg-possible";
+  if (n >= 40) return "cg-risky";
+  if (n >  0)  return "cg-avoid";
+  return "cg-nodata";
+}
+
+// ── Deal card v2 ───────────────────────────────────────
+function dealCardHtml(d) {
+  const rec     = d.recommendation || "PASS";
+  const recCls  = rec.toLowerCase();
+  const pillCls = { "BUY": "strong-buy", "WATCH": "possible", "PASS": "pass" }[rec] || "pass";
+
+  // CG score circle
+  const cg      = parseInt(d.cardgrade_score) || 0;
+  const cgCircle = `<span class="cg-score-sm ${cgRingClass(cg)}" title="CardGrade Score">${cg > 0 ? cg : "—"}</span>`;
+
+  // Confidence chip
+  const confBadge = `<span class="confidence-badge ${confCls(d.confidence)}">${capFirst(d.confidence || "low")}</span>`;
+
+  // Title with link
+  const title    = d.listing_title || "Unknown listing";
+  const titleHtml = d.listing_url
+    ? `<a href="${escHtml(d.listing_url)}" target="_blank" rel="noopener" class="comp-link">${escHtml(truncate(title, 75))}</a>`
+    : escHtml(truncate(title, 75));
+
+  // Best market price across grades
+  const bestMarket = Math.max(
+    parseFloat(d.psa10_market) || 0,
+    parseFloat(d.psa9_market)  || 0,
+    parseFloat(d.psa8_market)  || 0,
+    parseFloat(d.raw_market)   || 0
+  );
+
+  // Break-even chip
+  const beMap   = { psa8: "PSA 8+", psa9: "PSA 9+", psa10: "PSA 10 only" };
+  const beLabel = beMap[d.break_even_grade];
+  const beChip  = beLabel
+    ? `<span class="chip ${d.break_even_grade === "psa10" ? "chip-yellow" : "chip-green"}">Break-even ${escHtml(beLabel)}</span>`
+    : `<span class="chip">No break-even grade</span>`;
+
+  // Search name chip
+  const searchChip = d.search_name
+    ? `<span class="chip chip-accent">${escHtml(truncate(d.search_name, 22))}</span>`
     : "";
 
-  grid.innerHTML = mockBanner + deals.map(dealCardHtml).join("");
-}
-
-function dealCardHtml(d) {
-  const rec    = d.recommendation || "PASS";
-  const recCls = rec.toLowerCase();
-
-  const beMap = { psa8: "PSA 8", psa9: "PSA 9", psa10: "PSA 10", none: "None" };
-  const breakEven = beMap[d.break_even_grade] || "N/A";
-
-  const title = d.listing_title || "Unknown listing";
-  const link  = d.listing_url
-    ? `<a href="${escHtml(d.listing_url)}" target="_blank" rel="noopener" class="comp-link">${escHtml(truncate(title, 70))}</a>`
-    : escHtml(truncate(title, 70));
-
-  const mockTag   = d.is_mock ? ` <span class="est-badge">MOCK</span>` : "";
-  const confBadge = `<span class="confidence-badge ${confCls(d.confidence)}">${capFirst(d.confidence || "low")}</span>`;
-  const reason    = d.reason ? `<div class="text-muted fs-sm" style="margin-bottom:10px">${escHtml(d.reason)}</div>` : "";
-
-  return `<div class="deal-card ${recCls}" id="deal-card-${d.id}">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-      <span class="deal-rec-badge deal-rec-${rec}">${rec}</span>
-      <div style="display:flex;gap:6px;align-items:center">${confBadge}${mockTag}</div>
+  return `<div class="deal-card-v2 ${recCls}" id="deal-card-${d.id}">
+    <div class="deal-header-v2">
+      <span class="rec-pill-new ${pillCls}">${escHtml(rec)}</span>
+      ${confBadge}
+      ${cgCircle}
+      <span style="margin-left:auto;display:flex;gap:4px;align-items:center">${searchChip}</span>
     </div>
 
-    <div class="deal-title">${link}</div>
-    <div class="deal-price-row">
-      <span class="deal-price-big text-green">${fmt$(d.listing_price)}</span>
-      <span class="text-muted fs-sm">listing price</span>
-    </div>
+    <div class="deal-title-v2">${titleHtml}</div>
 
-    <div class="deal-values-grid">
-      ${valItem("Raw",    d.raw_market,   "")}
-      ${valItem("PSA 8",  d.psa8_market,  "text-yellow")}
-      ${valItem("PSA 9",  d.psa9_market,  "text-accent")}
-      ${valItem("PSA 10", d.psa10_market, "text-green")}
-    </div>
-
-    <div class="deal-stats-row">
-      <div class="deal-stat">
-        <div class="deal-stat-label">Best Profit</div>
-        <div class="deal-stat-val ${profCls(d.best_profit)}">${fmt$(d.best_profit)}</div>
+    <div class="deal-metrics-v2">
+      <div class="deal-metric-item">
+        <div class="deal-metric-label">Listing</div>
+        <div class="deal-metric-val">${fmt$(d.listing_price)}</div>
       </div>
-      <div class="deal-stat">
-        <div class="deal-stat-label">Best ROI</div>
-        <div class="deal-stat-val ${profCls(d.best_roi)}">${fmtPct(d.best_roi)}</div>
+      <div class="deal-metric-item">
+        <div class="deal-metric-label">Best Market</div>
+        <div class="deal-metric-val text-accent">${fmt$(bestMarket)}</div>
       </div>
-      <div class="deal-stat">
-        <div class="deal-stat-label">Break Even</div>
-        <div class="deal-stat-val"><span class="break-even-badge">${escHtml(breakEven)}</span></div>
+      <div class="deal-metric-item">
+        <div class="deal-metric-label">Best ROI</div>
+        <div class="deal-metric-val ${profCls(d.best_roi)}">${fmtPct(d.best_roi)}</div>
+      </div>
+      <div class="deal-metric-item">
+        <div class="deal-metric-label">Profit</div>
+        <div class="deal-metric-val ${profCls(d.best_profit)}">${fmt$(d.best_profit)}</div>
       </div>
     </div>
 
-    ${reason}
+    <div class="deal-chips-v2">
+      ${beChip}
+      ${d.reason ? `<span class="chip fs-sm" style="font-size:10px;color:var(--text-muted)">${escHtml(truncate(d.reason, 70))}</span>` : ""}
+    </div>
 
-    <div class="deal-footer">
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${d.listing_url
-          ? `<a href="${escHtml(d.listing_url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">View Listing</a>`
-          : ""}
-        <button class="btn btn-outline btn-sm" onclick="expandDeal(${d.id}, this)">Details</button>
-      </div>
+    <div id="deal-comps-${d.id}" style="display:none"></div>
+
+    <div class="deal-actions-v2">
+      ${d.listing_url
+        ? `<a href="${escHtml(d.listing_url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">View Listing</a>`
+        : ""}
+      <button class="btn btn-outline btn-sm" onclick="expandDeal(${d.id}, this)">View Comps</button>
       <button class="btn btn-outline btn-sm" onclick="dismissDeal(${d.id}, this)"
-              style="color:var(--text-muted)">Dismiss</button>
+              style="margin-left:auto;color:var(--text-muted)">Dismiss</button>
     </div>
-
-    <div id="deal-detail-${d.id}" style="display:none"></div>
   </div>`;
 }
 
-function valItem(label, price, cls) {
-  return `<div class="deal-val-item">
-    <div class="deal-val-label">${label}</div>
-    <div class="deal-val-price ${cls}">${fmt$(price)}</div>
-  </div>`;
-}
-
-// ── Deal detail expand ─────────────────────────────────
+// ── Deal comps expand ──────────────────────────────────
 async function expandDeal(did, btn) {
-  const detail = document.getElementById(`deal-detail-${did}`);
+  const detail = document.getElementById(`deal-comps-${did}`);
   if (detail.style.display !== "none") {
     detail.style.display = "none";
-    btn.textContent = "Details";
+    btn.textContent = "View Comps";
     return;
   }
 
@@ -330,8 +345,8 @@ async function expandDeal(did, btn) {
     }
 
     const compSections = Object.entries(byGrade).map(([grade, cs]) =>
-      `<div style="margin-bottom:14px">
-         <div class="formula-heading" style="margin-bottom:6px">${escHtml(grade)} Sold Comps</div>
+      `<div class="comp-grade-section">
+         <div class="comp-grade-label">${escHtml(grade)} Sold Comps</div>
          <table class="comp-table">
            <thead><tr><th>Title</th><th>Price</th><th>Date</th><th>Source</th></tr></thead>
            <tbody>${cs.map(c =>
@@ -346,15 +361,15 @@ async function expandDeal(did, btn) {
            </tbody>
          </table>
        </div>`
-    ).join("") || `<div class="text-muted fs-sm">No sold comps stored for this deal.</div>`;
+    ).join("") || `<div class="no-comps-msg">No sold comps stored for this deal.</div>`;
 
-    detail.innerHTML = `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:14px">${compSections}</div>`;
+    detail.innerHTML = `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">${compSections}</div>`;
     detail.style.display = "block";
-    btn.textContent = "Hide";
+    btn.textContent = "Hide Comps";
     btn.disabled    = false;
   } catch {
     showToast("Failed to load deal details", "error");
-    btn.textContent = "Details";
+    btn.textContent = "View Comps";
     btn.disabled    = false;
   }
 }
@@ -369,7 +384,7 @@ async function dismissDeal(did, btn) {
     if (card) card.remove();
     showToast("Deal dismissed", "info");
     const grid = document.getElementById("deals-grid");
-    if (grid && !grid.querySelector(".deal-card")) {
+    if (grid && !grid.querySelector(".deal-card-v2")) {
       document.getElementById("deals-empty").style.display = "flex";
     }
   } catch {
@@ -378,4 +393,4 @@ async function dismissDeal(did, btn) {
   }
 }
 
-// escHtml, capFirst, truncate are defined in app.js (loaded first)
+// escHtml, fmt$, fmtPct, profCls, confCls, capFirst, truncate — defined in app.js (loaded first)

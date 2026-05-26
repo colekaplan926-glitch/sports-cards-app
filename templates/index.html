@@ -140,37 +140,67 @@
           </div>
 
           <!-- Results (shown after calculate) -->
-          <div id="results-content" style="display:none; flex-direction:column; gap:1.5rem;">
+          <div id="results-content" style="display:none; flex-direction:column; gap:1rem;">
 
-            <!-- Recommendation banner -->
-            <div id="rec-banner" class="recommendation-banner rec-avoid"></div>
-
-            <!-- Per-grade price cards -->
-            <div class="panel">
-              <div class="panel-title"><span class="icon icon-yellow">📊</span> Market Values</div>
-              <div id="price-cards-grid" class="price-cards-grid"></div>
+            <!-- Signal card -->
+            <div class="signal-card" id="signal-card">
+              <div class="signal-top">
+                <div id="cg-ring" class="cg-ring cg-nodata">
+                  <div id="cg-score-num" class="cg-score-num">—</div>
+                  <div class="cg-ring-label">Score</div>
+                </div>
+                <div class="signal-center">
+                  <span id="signal-rec-pill" class="rec-pill-new insuf">—</span>
+                  <div id="signal-sub" class="signal-sub"></div>
+                  <div id="signal-text" class="signal-text"></div>
+                </div>
+                <div class="signal-right">
+                  <div id="signal-roi-num" class="signal-roi-num text-muted">—</div>
+                  <div id="signal-profit-sub" class="signal-profit-sub"></div>
+                </div>
+              </div>
+              <div id="signal-chips" class="signal-chips"></div>
             </div>
 
-            <!-- Profit table -->
-            <div class="panel">
-              <div class="panel-title"><span class="icon icon-green">💹</span> Profit by Exit Strategy</div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
+            <!-- Grade value chips -->
+            <div id="grade-chips-row" class="grade-chips-row"></div>
+
+            <!-- Expandable: Analysis -->
+            <div class="expand-section">
+              <button class="expand-trigger" onclick="toggleSection(this)">
+                <span>View Analysis</span><span class="expand-arrow">▾</span>
+              </button>
+              <div class="expand-body" style="display:none">
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr>
                       <th>Strategy</th><th>Sale Price</th>
                       <th>Total Cost</th><th>Profit</th><th>ROI</th>
-                    </tr>
-                  </thead>
-                  <tbody id="results-tbody"></tbody>
-                </table>
+                    </tr></thead>
+                    <tbody id="results-tbody"></tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
-            <!-- Formulas -->
-            <div class="panel">
-              <div class="panel-title"><span class="icon icon-purple">🧮</span> How We Calculate This</div>
-              <div id="formulas-section"></div>
+            <!-- Expandable: Comps -->
+            <div class="expand-section">
+              <button class="expand-trigger" onclick="toggleSection(this)">
+                <span>View Comps</span><span class="expand-arrow">▾</span>
+              </button>
+              <div class="expand-body" style="display:none">
+                <div id="comps-by-grade"></div>
+              </div>
+            </div>
+
+            <!-- Expandable: Advanced (formulas) -->
+            <div class="expand-section">
+              <button class="expand-trigger" onclick="toggleSection(this)">
+                <span>Advanced</span><span class="expand-arrow">▾</span>
+              </button>
+              <div class="expand-body" style="display:none">
+                <div id="formulas-section"></div>
+              </div>
             </div>
 
           </div><!-- /results-content -->
@@ -242,10 +272,13 @@
       <button class="btn btn-outline btn-sm" onclick="loadDeals()">↺ Refresh</button>
     </div>
 
-    <div id="deals-empty" class="empty-state" style="display:none">
-      <div class="empty-icon">📭</div>
-      <div class="empty-title">No deals found</div>
-      <p class="text-muted">Run a saved search to start finding raw card buying opportunities.</p>
+    <div id="deals-empty" class="empty-state-v2" style="display:none">
+      <div class="empty-icon">📡</div>
+      <div class="empty-title">No live deals yet</div>
+      <p class="text-muted fs-sm">Mock/estimated data is never shown here.</p>
+      <div class="api-hint">APIFY_TOKEN</div>
+      <div class="api-hint">SPORTSCARDSPRO_API_KEY</div>
+      <p class="text-muted fs-sm" style="margin-top:4px">Set one of these, then run a search.</p>
     </div>
 
     <div id="deals-grid" class="deal-cards-grid"></div>

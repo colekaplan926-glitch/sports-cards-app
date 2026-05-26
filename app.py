@@ -148,6 +148,11 @@ def init_db():
             )
         """)
 
+        # Migrate found_deals: add cardgrade_score column if missing
+        deals_cols = {r[1] for r in db.execute("PRAGMA table_info(found_deals)")}
+        if "cardgrade_score" not in deals_cols:
+            db.execute("ALTER TABLE found_deals ADD COLUMN cardgrade_score INTEGER DEFAULT 0")
+
         db.commit()
 
 
@@ -191,6 +196,7 @@ def calculate():
         shipping        = float(data.get("shipping_fees", 0)),
         selling_fee_pct = float(data.get("selling_fee_pct", 0)),
         prices          = prices_dict,
+        set_name        = data.get("set_name", ""),
     )
     calc["prices"] = prices_dict
     return jsonify(calc)
@@ -396,7 +402,7 @@ def list_deals():
     show_dismissed = request.args.get("dismissed", "0") == "1"
 
     db    = get_db()
-    where = ["d.is_dismissed = ?"]
+    where = ["d.is_dismissed = ?", "d.is_mock = 0"]
     args  = [1 if show_dismissed else 0]
 
     if rec:

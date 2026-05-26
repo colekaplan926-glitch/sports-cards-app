@@ -30,7 +30,7 @@ from typing import List, Optional
 
 import requests
 
-from calculations import calculate_profits
+from calculations import calculate_profits, cardgrade_score as _cg_score
 from pricing import PROVIDER_CHAIN
 
 logger = logging.getLogger(__name__)
@@ -62,12 +62,12 @@ class DealAnalysis:
     listing:         RawListing
     prices:          dict         # GradeResult dicts keyed by grade
     calc:            dict         # output of calculate_profits()
-    recommendation:  str          = "PASS"   # "BUY" | "WATCH" | "PASS"
+    recommendation:  str          = "PASS"
     reason:          str          = ""
-    break_even:      str          = "none"   # "psa8" | "psa9" | "psa10" | "none"
+    break_even:      str          = "none"
     confidence:      str          = "low"
     is_mock:         bool         = False
-    # Parsed card info (best-effort from title)
+    cardgrade_score: int          = 0
     player_name:     str          = ""
     year:            str          = ""
     set_name:        str          = ""
@@ -359,7 +359,6 @@ def analyze_listing(
         has_real_data = has_real_data,
     )
 
-    # Append break-even info to reason when we have real data
     if has_real_data:
         if be_grade != "none":
             be_label = {"psa8": "PSA 8", "psa9": "PSA 9", "psa10": "PSA 10"}[be_grade]
@@ -367,19 +366,31 @@ def analyze_listing(
         else:
             reason += " No grading path breaks even at this price."
 
+    avg_comps = sum(prices[g].get("comp_count", 0) for g in ("raw","psa8","psa9","psa10")) // 4
+    cg = _cg_score(
+        best_roi      = best["roi"],
+        confidence    = confidence,
+        comp_count    = avg_comps,
+        has_real_data = has_real_data,
+        break_even    = be_grade,
+    )
+
+    is_mock = listing.is_mock or not has_real_data
+
     return DealAnalysis(
-        listing        = listing,
-        prices         = prices,
-        calc           = calc,
-        recommendation = rec,
-        reason         = reason,
-        break_even     = be_grade,
-        confidence     = confidence,
-        is_mock        = listing.is_mock or not has_real_data,
-        player_name    = _parse_player(listing.title, players),
-        year           = _parse_year(listing.title),
-        set_name       = "",   # hard to parse reliably without ML
-        card_number    = _parse_card_number(listing.title),
+        listing         = listing,
+        prices          = prices,
+        calc            = calc,
+        recommendation  = rec,
+        reason          = reason,
+        break_even      = be_grade,
+        confidence      = confidence,
+        is_mock         = is_mock,
+        cardgrade_score = cg["score"],
+        player_name     = _parse_player(listing.title, players),
+        year            = _parse_year(listing.title),
+        set_name        = "",
+        card_number     = _parse_card_number(listing.title),
     )
 
 
@@ -406,12 +417,12 @@ def _save_deal(conn: sqlite3.Connection, deal: DealAnalysis,
             best_option, best_profit, best_roi,
             break_even_grade, recommendation, reason,
             raw_comps, psa8_comps, psa9_comps, psa10_comps,
-            confidence, data_source, is_mock
+            confidence, data_source, is_mock, cardgrade_score
         ) VALUES (
             ?,?,  ?,?,?,?,  ?,?,?,?,?,
             ?,?,?,?,  ?,?,?,?,  ?,?,?,?,
             ?,?,?,  ?,?,?,
-            ?,?,?,?,  ?,?,?
+            ?,?,?,?,  ?,?,?,?
         )""",
         (
             search_id, scan_run_id,
@@ -433,6 +444,7 @@ def _save_deal(conn: sqlite3.Connection, deal: DealAnalysis,
             deal.confidence,
             prices["raw"]["source_name"],
             1 if deal.is_mock else 0,
+            deal.cardgrade_score,
         ),
     )
     conn.commit()
@@ -546,8 +558,8 @@ def _do_scan(conn, search, search_id, scan_run_id) -> tuple[int, int]:
 
         deal = analyze_listing(listing, search, prices)
 
-        # Save all deals with positive best ROI (UI will filter BUY/WATCH/PASS)
-        if deal.calc["best"]["roi"] > 0:
+        # Only save real (non-mock) deals with positive ROI
+        if deal.calc["best"]["roi"] > 0 and not deal.is_mock:
             deal_id = _save_deal(conn, deal, search_id, scan_run_id)
             _save_comps(conn, deal_id, prices)
             deals_found += 1
