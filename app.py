@@ -1,14 +1,16 @@
 import sqlite3
 import os
+import logging
 from flask import Flask, request, jsonify, render_template, g
-from pricing import ACTIVE_ENGINE
+from pricing import PROVIDER_CHAIN
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# On Glitch, .data/ persists across restarts and is excluded from git.
-# Locally, fall back to the project root.
 _data_dir = ".data" if os.path.isdir(".data") else "."
-DATABASE = os.path.join(_data_dir, "sports_cards.db")
+DATABASE  = os.path.join(_data_dir, "sports_cards.db")
 
 
 def get_db():
@@ -46,7 +48,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Migrate old schema: add new columns if they don't exist yet
         existing = {row[1] for row in db.execute("PRAGMA table_info(watchlist)")}
         for col, defn in [
             ("best_profit", "REAL"),
@@ -58,31 +59,37 @@ def init_db():
         db.commit()
 
 
-def calculate_profits(data, prices):
-    raw_buy     = float(data.get("raw_price", 0))
-    grading     = float(data.get("grading_cost", 0))
-    shipping    = float(data.get("shipping_fees", 0))
-    fee_pct     = float(data.get("selling_fee_pct", 0)) / 100
+def calculate_profits(data: dict, prices: dict) -> dict:
+    """
+    Separated profit logic:
 
-    raw_market  = prices["raw_market"]
-    psa8_val    = prices["psa8"]
-    psa9_val    = prices["psa9"]
-    psa10_val   = prices["psa10"]
+    Sell raw now:
+        Profit = Raw Market Value − Raw Purchase Price − Selling Fees
 
-    # ── Sell raw now ──────────────────────────────────────────────────────────
-    # Cost basis is only what you paid for the card.
-    # Profit = Raw Market Value − Raw Purchase Price − Selling Fees
-    raw_sell_fee  = round(raw_market * fee_pct, 2)
-    raw_cost      = round(raw_buy, 2)
-    raw_profit    = round(raw_market - raw_cost - raw_sell_fee, 2)
-    raw_roi       = round((raw_profit / raw_cost * 100) if raw_cost > 0 else 0, 2)
+    Grade then sell:
+        Total Cost = Raw Purchase Price + Grading Fee + Shipping to/from Grader
+        Profit = PSA Sale Price − Total Cost − Selling Fees
+    """
+    raw_buy  = float(data.get("raw_price", 0))
+    grading  = float(data.get("grading_cost", 0))
+    shipping = float(data.get("shipping_fees", 0))
+    fee_pct  = float(data.get("selling_fee_pct", 0)) / 100
+
+    raw_market = prices["raw"]["median_price"]
+    psa8_val   = prices["psa8"]["median_price"]
+    psa9_val   = prices["psa9"]["median_price"]
+    psa10_val  = prices["psa10"]["median_price"]
+
+    # ── Sell raw ──────────────────────────────────────────────────────────────
+    raw_sell_fee = round(raw_market * fee_pct, 2)
+    raw_cost     = round(raw_buy, 2)
+    raw_profit   = round(raw_market - raw_cost - raw_sell_fee, 2)
+    raw_roi      = round((raw_profit / raw_cost * 100) if raw_cost > 0 else 0, 2)
 
     # ── Grade then sell ───────────────────────────────────────────────────────
-    # Cost basis includes raw card + grading fee + shipping to/from grader.
-    # Profit = PSA Sale Price − (Raw Purchase + Grading + Shipping) − Selling Fees
     graded_cost = round(raw_buy + grading + shipping, 2)
 
-    def graded_result(sale_price):
+    def graded(sale_price: float) -> dict:
         sell_fee = round(sale_price * fee_pct, 2)
         profit   = round(sale_price - graded_cost - sell_fee, 2)
         roi      = round((profit / graded_cost * 100) if graded_cost > 0 else 0, 2)
@@ -102,12 +109,11 @@ def calculate_profits(data, prices):
             "profit":     raw_profit,
             "roi":        raw_roi,
         },
-        "psa8":  graded_result(psa8_val),
-        "psa9":  graded_result(psa9_val),
-        "psa10": graded_result(psa10_val),
+        "psa8":  graded(psa8_val),
+        "psa9":  graded(psa9_val),
+        "psa10": graded(psa10_val),
     }
 
-    # Best option by ROI
     best_key = max(results, key=lambda k: results[k]["roi"])
     best_labels = {
         "raw":   "Sell Raw",
@@ -115,8 +121,8 @@ def calculate_profits(data, prices):
         "psa9":  "Grade → PSA 9",
         "psa10": "Grade → PSA 10",
     }
-
     best_roi = results[best_key]["roi"]
+
     if best_roi >= 50:
         recommendation = "Strong Buy"
     elif best_roi >= 20:
@@ -127,9 +133,9 @@ def calculate_profits(data, prices):
     return {
         "results": results,
         "best": {
-            "key":   best_key,
-            "label": best_labels[best_key],
-            "roi":   best_roi,
+            "key":    best_key,
+            "label":  best_labels[best_key],
+            "roi":    best_roi,
             "profit": results[best_key]["profit"],
         },
         "recommendation": recommendation,
@@ -154,23 +160,29 @@ def calculate():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    prices = ACTIVE_ENGINE.estimate(
-        player_name  = data.get("player_name", ""),
-        year         = data.get("year", ""),
-        set_name     = data.get("set_name", ""),
-        card_number  = data.get("card_number", ""),
-        sport        = data.get("sport", ""),
-        raw_buy_price= data.get("raw_price", 0),
-    )
+    try:
+        card_prices = PROVIDER_CHAIN.fetch(
+            player_name   = data.get("player_name", ""),
+            year          = data.get("year", ""),
+            set_name      = data.get("set_name", ""),
+            card_number   = data.get("card_number", ""),
+            sport         = data.get("sport", ""),
+            raw_buy_price = float(data.get("raw_price", 0)),
+            include_autos = data.get("include_autos", False),
+        )
+    except Exception as exc:
+        logger.error("Pricing fetch failed: %s", exc)
+        return jsonify({"error": "Pricing lookup failed. Try again."}), 500
 
-    result = calculate_profits(data, prices)
-    result["prices"] = prices
-    return jsonify(result)
+    prices_dict = card_prices.to_dict()
+    calc        = calculate_profits(data, prices_dict)
+    calc["prices"] = prices_dict
+    return jsonify(calc)
 
 
 @app.route("/api/watchlist", methods=["GET"])
 def get_watchlist():
-    db = get_db()
+    db    = get_db()
     cards = db.execute(
         "SELECT * FROM watchlist ORDER BY created_at DESC"
     ).fetchall()
@@ -183,16 +195,22 @@ def add_to_watchlist():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    prices = ACTIVE_ENGINE.estimate(
-        player_name  = data.get("player_name", ""),
-        year         = data.get("year", ""),
-        set_name     = data.get("set_name", ""),
-        card_number  = data.get("card_number", ""),
-        sport        = data.get("sport", ""),
-        raw_buy_price= data.get("raw_price", 0),
-    )
-    calc = calculate_profits(data, prices)
-    best = calc["best"]
+    try:
+        card_prices = PROVIDER_CHAIN.fetch(
+            player_name   = data.get("player_name", ""),
+            year          = data.get("year", ""),
+            set_name      = data.get("set_name", ""),
+            card_number   = data.get("card_number", ""),
+            sport         = data.get("sport", ""),
+            raw_buy_price = float(data.get("raw_price", 0)),
+        )
+    except Exception as exc:
+        logger.error("Pricing fetch failed for watchlist: %s", exc)
+        return jsonify({"error": "Pricing lookup failed"}), 500
+
+    prices_dict = card_prices.to_dict()
+    calc        = calculate_profits(data, prices_dict)
+    best        = calc["best"]
 
     db = get_db()
     db.execute(
@@ -207,7 +225,7 @@ def add_to_watchlist():
             data.get("card_number", ""),
             data.get("sport", ""),
             float(data.get("raw_price", 0)),
-            prices["psa10"],
+            prices_dict["psa10"]["median_price"],
             best["profit"],
             best["roi"],
             best["label"],
