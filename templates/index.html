@@ -18,26 +18,29 @@
   </div>
   <nav class="nav-tabs">
     <button class="nav-tab active" data-tab="calculator" onclick="showPage('calculator')">Calculator</button>
-    <button class="nav-tab" data-tab="watchlist" onclick="showPage('watchlist')">Watchlist</button>
+    <button class="nav-tab" data-tab="watchlist"   onclick="showPage('watchlist')">Watchlist</button>
   </nav>
 </header>
 
-<!-- ── Main ── -->
 <main class="main-content">
 
   <!-- ════════════════ CALCULATOR PAGE ════════════════ -->
   <div class="page active" id="page-calculator">
+
+    <div class="page-intro">
+      <p>Enter your card details and what you paid raw — we'll estimate what it could be worth graded and show you the exact profit for every exit.</p>
+    </div>
+
     <form id="calc-form" onsubmit="return false;">
       <div class="calc-layout">
 
-        <!-- Input column -->
+        <!-- ── Input column ── -->
         <div class="input-col">
 
           <!-- Card Details -->
           <div class="panel">
             <div class="panel-title">
-              <span class="icon icon-purple">🎴</span>
-              Card Details
+              <span class="icon icon-purple">🎴</span> Card Details
             </div>
             <div class="grid-2">
               <div class="form-group">
@@ -46,18 +49,18 @@
               </div>
               <div class="form-group">
                 <label for="year">Year</label>
-                <input type="text" id="year" placeholder="e.g. 2017" />
+                <input type="text" id="year" placeholder="e.g. 2017" maxlength="4" />
               </div>
               <div class="form-group">
                 <label for="set_name">Set Name</label>
                 <input type="text" id="set_name" placeholder="e.g. Panini Prizm" />
               </div>
               <div class="form-group">
-                <label for="card_number">Card Number</label>
+                <label for="card_number">Card #</label>
                 <input type="text" id="card_number" placeholder="e.g. 269" />
               </div>
             </div>
-            <div class="form-group" style="margin-top:0.75rem;">
+            <div class="form-group" style="margin-top:.5rem">
               <label for="sport">Sport</label>
               <select id="sport">
                 <option value="">Select sport…</option>
@@ -73,177 +76,127 @@
             </div>
           </div>
 
-          <!-- Cost Inputs -->
+          <!-- Your Costs -->
           <div class="panel">
             <div class="panel-title">
-              <span class="icon icon-teal">💰</span>
-              Cost Inputs
+              <span class="icon icon-teal">💰</span> Your Costs
             </div>
-            <div class="grid-2">
+
+            <div class="form-group">
+              <label for="raw_price">Raw Purchase Price ($)</label>
+              <input type="number" id="raw_price" min="0" step="0.01" placeholder="What you paid for the raw card" />
+            </div>
+
+            <div class="divider"></div>
+            <p class="section-note">Grading costs (only apply if you grade it)</p>
+
+            <div class="grid-2" style="margin-top:.75rem">
               <div class="form-group">
-                <label for="raw_price">Raw Purchase Price ($)</label>
-                <input type="number" id="raw_price" min="0" step="0.01" placeholder="0.00" />
-              </div>
-              <div class="form-group">
-                <label for="grading_cost">Grading Cost ($)</label>
+                <label for="grading_cost">Grading Fee ($)</label>
                 <input type="number" id="grading_cost" min="0" step="0.01" placeholder="e.g. 25.00" value="25" />
               </div>
               <div class="form-group">
-                <label for="shipping_fees">Shipping / Fees ($)</label>
+                <label for="shipping_fees">Shipping to/from Grader ($)</label>
                 <input type="number" id="shipping_fees" min="0" step="0.01" placeholder="e.g. 15.00" value="15" />
               </div>
-              <div class="form-group">
-                <label for="selling_fee_pct">Selling Fee (%)</label>
-                <input type="number" id="selling_fee_pct" min="0" max="100" step="0.1" placeholder="e.g. 12.9" value="12.9" />
-              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-group">
+              <label for="selling_fee_pct">Selling Fee % <span class="label-hint">(eBay ≈ 12.9%)</span></label>
+              <input type="number" id="selling_fee_pct" min="0" max="100" step="0.1" placeholder="12.9" value="12.9" />
             </div>
           </div>
 
-          <!-- Market Values -->
-          <div class="panel">
-            <div class="panel-title">
-              <span class="icon icon-yellow">📊</span>
-              Market Values
-            </div>
-            <div class="grid-2">
-              <div class="form-group">
-                <label for="psa10_market">PSA 10 Value ($)</label>
-                <input type="number" id="psa10_market" min="0" step="0.01" placeholder="0.00" />
-              </div>
-              <div class="form-group">
-                <label for="psa9_market">PSA 9 Value ($)</label>
-                <input type="number" id="psa9_market" min="0" step="0.01" placeholder="0.00" />
-              </div>
-              <div class="form-group">
-                <label for="psa8_market">PSA 8 Value ($)</label>
-                <input type="number" id="psa8_market" min="0" step="0.01" placeholder="0.00" />
-              </div>
-              <div class="form-group">
-                <label for="raw_market">Current Raw Value ($)</label>
-                <input type="number" id="raw_market" min="0" step="0.01" placeholder="0.00" />
-              </div>
-            </div>
-          </div>
-
-          <!-- Grade Probabilities -->
-          <div class="panel">
-            <div class="panel-title">
-              <span class="icon icon-green">🎲</span>
-              Grade Probabilities
-            </div>
-            <p class="text-muted fs-sm" style="margin-bottom:1rem;">Estimated chance of each grade. Must sum to 100%.</p>
-            <div class="prob-row">
-              <span class="prob-label"><span class="grade-badge grade-10">PSA 10</span></span>
-              <input class="prob-input" type="number" id="prob_10" min="0" max="100" step="1" value="30" />
-              <span class="text-muted">%</span>
-            </div>
-            <div class="prob-row">
-              <span class="prob-label"><span class="grade-badge grade-9">PSA 9</span></span>
-              <input class="prob-input" type="number" id="prob_9" min="0" max="100" step="1" value="45" />
-              <span class="text-muted">%</span>
-            </div>
-            <div class="prob-row">
-              <span class="prob-label"><span class="grade-badge grade-8">PSA 8</span></span>
-              <input class="prob-input" type="number" id="prob_8" min="0" max="100" step="1" value="15" />
-              <span class="text-muted">%</span>
-            </div>
-            <div class="prob-row">
-              <span class="prob-label"><span class="grade-badge grade-raw">Lower</span></span>
-              <input class="prob-input" type="number" id="prob_lower" min="0" max="100" step="1" value="10" />
-              <span class="text-muted">%</span>
-            </div>
-            <p id="prob-total" class="prob-total text-green">Total: 100.0%</p>
-
-            <div class="btn-group">
-              <button class="btn btn-primary" onclick="calculate()">
-                ⚡ Calculate ROI
-              </button>
-              <button class="btn btn-success" onclick="addToWatchlist()">
-                ＋ Save to Watchlist
-              </button>
-              <button class="btn btn-outline" onclick="resetForm()">
-                ↺ Reset
-              </button>
-            </div>
+          <!-- Action buttons -->
+          <div class="btn-group">
+            <button class="btn btn-primary" id="calc-btn" onclick="calculate()">
+              ⚡ Estimate &amp; Calculate
+            </button>
+            <button class="btn btn-success" onclick="addToWatchlist()">
+              ＋ Save to Watchlist
+            </button>
+            <button class="btn btn-outline" onclick="resetForm()">
+              ↺ Reset
+            </button>
           </div>
 
         </div><!-- /input-col -->
 
-        <!-- Results column -->
+        <!-- ── Results column ── -->
         <div class="results-col">
 
           <!-- Placeholder -->
           <div class="results-placeholder" id="results-placeholder">
-            <div class="placeholder-icon">📉</div>
-            <p>Fill in the card details and costs, then click <strong>Calculate ROI</strong> to see your profit analysis.</p>
+            <div class="placeholder-icon">🔍</div>
+            <p>Enter the card details and what you paid raw, then click <strong>Estimate &amp; Calculate</strong>.</p>
+            <p class="text-muted fs-sm" style="margin-top:.5rem">We'll estimate raw and PSA values and show you the profit for every exit scenario.</p>
           </div>
 
-          <!-- Results (hidden until calculated) -->
+          <!-- Results (revealed after calculate) -->
           <div id="results-content" style="display:none; flex-direction:column; gap:1.5rem;">
 
-            <!-- Recommendation -->
-            <div id="rec-banner" class="recommendation-banner rec-avoid">
-              <!-- filled by JS -->
-            </div>
+            <!-- Recommendation banner -->
+            <div id="rec-banner" class="recommendation-banner rec-avoid"></div>
 
-            <!-- Key Stats -->
+            <!-- Estimated market values -->
             <div class="panel">
               <div class="panel-title">
-                <span class="icon icon-teal">📈</span>
-                Summary
+                <span class="icon icon-yellow">📊</span> Estimated Market Values
+                <span id="est-confidence" class="confidence-badge conf-low">Low confidence</span>
               </div>
-              <div class="grid-4">
-                <div class="stat-card">
-                  <div class="stat-label">Exp. Profit</div>
-                  <div id="stat-ev-profit" class="stat-value text-green">—</div>
-                  <div class="stat-sub">Expected value</div>
+              <div class="est-values-grid">
+                <div class="est-card">
+                  <div class="est-label">Raw</div>
+                  <div class="est-value" id="est-raw">—</div>
                 </div>
-                <div class="stat-card">
-                  <div class="stat-label">Exp. ROI</div>
-                  <div id="stat-ev-roi" class="stat-value text-green">—</div>
-                  <div class="stat-sub">Return on invest.</div>
+                <div class="est-card">
+                  <div class="est-label">PSA 8</div>
+                  <div class="est-value text-yellow" id="est-psa8">—</div>
                 </div>
-                <div class="stat-card">
-                  <div class="stat-label">Best Outcome</div>
-                  <div id="stat-best-grade" class="stat-value text-accent">—</div>
-                  <div class="stat-sub">Highest ROI grade</div>
+                <div class="est-card">
+                  <div class="est-label">PSA 9</div>
+                  <div class="est-value text-accent" id="est-psa9">—</div>
                 </div>
-                <div class="stat-card">
-                  <div class="stat-label">Total Cost</div>
-                  <div id="stat-total-cost" class="stat-value">—</div>
-                  <div class="stat-sub">If graded</div>
+                <div class="est-card">
+                  <div class="est-label">PSA 10</div>
+                  <div class="est-value text-green" id="est-psa10">—</div>
                 </div>
               </div>
+              <p class="est-source" id="est-source"></p>
             </div>
 
-            <!-- Profit Table -->
+            <!-- Profit table -->
             <div class="panel">
               <div class="panel-title">
-                <span class="icon icon-yellow">🏷️</span>
-                Profit by Grade
+                <span class="icon icon-green">💹</span> Profit by Exit Strategy
               </div>
               <div class="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Grade</th>
+                      <th>Strategy</th>
                       <th>Sale Price</th>
                       <th>Total Cost</th>
                       <th>Profit</th>
                       <th>ROI</th>
                     </tr>
                   </thead>
-                  <tbody id="results-tbody">
-                  </tbody>
+                  <tbody id="results-tbody"></tbody>
                 </table>
               </div>
-              <p class="text-muted fs-sm mt-1">
-                Total cost includes raw price + grading + shipping/fees. Profit subtracts selling fees from sale price.
-              </p>
+            </div>
+
+            <!-- Formulas -->
+            <div class="panel">
+              <div class="panel-title">
+                <span class="icon icon-purple">🧮</span> How We Calculate This
+              </div>
+              <div id="formulas-section"></div>
             </div>
 
           </div><!-- /results-content -->
-
         </div><!-- /results-col -->
       </div><!-- /calc-layout -->
     </form>
@@ -253,15 +206,14 @@
   <!-- ════════════════ WATCHLIST PAGE ════════════════ -->
   <div class="page" id="page-watchlist">
     <div class="panel">
-      <div class="panel-title" style="justify-content:space-between;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span class="icon icon-purple">📋</span>
-          My Watchlist
+      <div class="panel-title" style="justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="icon icon-purple">📋</span> My Watchlist
         </div>
         <button class="btn btn-outline btn-sm" onclick="loadWatchlist()">↺ Refresh</button>
       </div>
 
-      <div id="watchlist-empty" class="empty-state" style="display:none;">
+      <div id="watchlist-empty" class="empty-state" style="display:none">
         <div class="empty-icon">📭</div>
         <div class="empty-title">No cards saved yet</div>
         <p class="text-muted">Use the calculator and click <strong>Save to Watchlist</strong> to track cards here.</p>
@@ -273,10 +225,11 @@
             <tr>
               <th>Card</th>
               <th>Sport</th>
-              <th>Raw Price</th>
-              <th>PSA 10 Value</th>
-              <th>Exp. Profit</th>
-              <th>Exp. ROI</th>
+              <th>Raw Cost</th>
+              <th>Est. PSA 10</th>
+              <th>Best Profit</th>
+              <th>Best ROI</th>
+              <th>Best Exit</th>
               <th>Rec.</th>
               <th></th>
             </tr>
@@ -289,9 +242,7 @@
 
 </main>
 
-<!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
-
 <script src="/static/js/app.js"></script>
 </body>
 </html>

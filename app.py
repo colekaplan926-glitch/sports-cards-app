@@ -1,6 +1,7 @@
 import sqlite3
 import os
 from flask import Flask, request, jsonify, render_template, g
+from pricing import ACTIVE_ENGINE
 
 app = Flask(__name__)
 
@@ -38,77 +39,106 @@ def init_db():
                 sport TEXT,
                 raw_price REAL,
                 psa10_price REAL,
-                expected_profit REAL,
-                expected_roi REAL,
+                best_profit REAL,
+                best_roi REAL,
+                best_option TEXT,
                 recommendation TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migrate old schema: add new columns if they don't exist yet
+        existing = {row[1] for row in db.execute("PRAGMA table_info(watchlist)")}
+        for col, defn in [
+            ("best_profit", "REAL"),
+            ("best_roi",    "REAL"),
+            ("best_option", "TEXT"),
+        ]:
+            if col not in existing:
+                db.execute(f"ALTER TABLE watchlist ADD COLUMN {col} {defn}")
         db.commit()
 
 
-def calculate_profits(data):
-    raw_price = float(data.get("raw_price", 0))
-    grading_cost = float(data.get("grading_cost", 0))
-    shipping_fees = float(data.get("shipping_fees", 0))
-    selling_fee_pct = float(data.get("selling_fee_pct", 0)) / 100
+def calculate_profits(data, prices):
+    raw_buy     = float(data.get("raw_price", 0))
+    grading     = float(data.get("grading_cost", 0))
+    shipping    = float(data.get("shipping_fees", 0))
+    fee_pct     = float(data.get("selling_fee_pct", 0)) / 100
 
-    raw_market = float(data.get("raw_market", 0))
-    psa10_market = float(data.get("psa10_market", 0))
-    psa9_market = float(data.get("psa9_market", 0))
-    psa8_market = float(data.get("psa8_market", 0))
+    raw_market  = prices["raw_market"]
+    psa8_val    = prices["psa8"]
+    psa9_val    = prices["psa9"]
+    psa10_val   = prices["psa10"]
 
-    prob_10 = float(data.get("prob_10", 0)) / 100
-    prob_9 = float(data.get("prob_9", 0)) / 100
-    prob_8 = float(data.get("prob_8", 0)) / 100
-    prob_lower = float(data.get("prob_lower", 0)) / 100
+    # ── Sell raw now ──────────────────────────────────────────────────────────
+    # Cost basis is only what you paid for the card.
+    # Profit = Raw Market Value − Raw Purchase Price − Selling Fees
+    raw_sell_fee  = round(raw_market * fee_pct, 2)
+    raw_cost      = round(raw_buy, 2)
+    raw_profit    = round(raw_market - raw_cost - raw_sell_fee, 2)
+    raw_roi       = round((raw_profit / raw_cost * 100) if raw_cost > 0 else 0, 2)
 
-    graded_total_cost = raw_price + grading_cost + shipping_fees
-    raw_total_cost = raw_price
+    # ── Grade then sell ───────────────────────────────────────────────────────
+    # Cost basis includes raw card + grading fee + shipping to/from grader.
+    # Profit = PSA Sale Price − (Raw Purchase + Grading + Shipping) − Selling Fees
+    graded_cost = round(raw_buy + grading + shipping, 2)
 
-    def grade_result(sale_price, total_cost):
-        selling_fees = sale_price * selling_fee_pct
-        profit = sale_price - total_cost - selling_fees
-        roi = (profit / total_cost * 100) if total_cost > 0 else 0
+    def graded_result(sale_price):
+        sell_fee = round(sale_price * fee_pct, 2)
+        profit   = round(sale_price - graded_cost - sell_fee, 2)
+        roi      = round((profit / graded_cost * 100) if graded_cost > 0 else 0, 2)
         return {
             "sale_price": round(sale_price, 2),
-            "total_cost": round(total_cost, 2),
-            "selling_fees": round(selling_fees, 2),
-            "profit": round(profit, 2),
-            "roi": round(roi, 2),
+            "cost_basis": graded_cost,
+            "sell_fee":   sell_fee,
+            "profit":     profit,
+            "roi":        roi,
         }
 
     results = {
-        "psa10": grade_result(psa10_market, graded_total_cost),
-        "psa9": grade_result(psa9_market, graded_total_cost),
-        "psa8": grade_result(psa8_market, graded_total_cost),
-        "raw": grade_result(raw_market, raw_total_cost),
-        "lower": grade_result(raw_market, graded_total_cost),
+        "raw":   {
+            "sale_price": round(raw_market, 2),
+            "cost_basis": raw_cost,
+            "sell_fee":   raw_sell_fee,
+            "profit":     raw_profit,
+            "roi":        raw_roi,
+        },
+        "psa8":  graded_result(psa8_val),
+        "psa9":  graded_result(psa9_val),
+        "psa10": graded_result(psa10_val),
     }
 
-    # Expected value using lower grade = sells at raw but paid grading costs
-    ev_profit = (
-        prob_10 * results["psa10"]["profit"]
-        + prob_9 * results["psa9"]["profit"]
-        + prob_8 * results["psa8"]["profit"]
-        + prob_lower * results["lower"]["profit"]
-    )
-    ev_cost = graded_total_cost
-    ev_roi = (ev_profit / ev_cost * 100) if ev_cost > 0 else 0
+    # Best option by ROI
+    best_key = max(results, key=lambda k: results[k]["roi"])
+    best_labels = {
+        "raw":   "Sell Raw",
+        "psa8":  "Grade → PSA 8",
+        "psa9":  "Grade → PSA 9",
+        "psa10": "Grade → PSA 10",
+    }
 
-    if ev_roi >= 50:
+    best_roi = results[best_key]["roi"]
+    if best_roi >= 50:
         recommendation = "Strong Buy"
-    elif ev_roi >= 20:
+    elif best_roi >= 20:
         recommendation = "Possible Buy"
     else:
         recommendation = "Avoid"
 
     return {
-        "grades": results,
-        "expected": {
-            "profit": round(ev_profit, 2),
-            "roi": round(ev_roi, 2),
-            "recommendation": recommendation,
+        "results": results,
+        "best": {
+            "key":   best_key,
+            "label": best_labels[best_key],
+            "roi":   best_roi,
+            "profit": results[best_key]["profit"],
+        },
+        "recommendation": recommendation,
+        "costs": {
+            "raw_buy":     raw_buy,
+            "grading":     grading,
+            "shipping":    shipping,
+            "fee_pct":     float(data.get("selling_fee_pct", 0)),
+            "graded_cost": graded_cost,
         },
     }
 
@@ -123,8 +153,19 @@ def calculate():
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
-    results = calculate_profits(data)
-    return jsonify(results)
+
+    prices = ACTIVE_ENGINE.estimate(
+        player_name  = data.get("player_name", ""),
+        year         = data.get("year", ""),
+        set_name     = data.get("set_name", ""),
+        card_number  = data.get("card_number", ""),
+        sport        = data.get("sport", ""),
+        raw_buy_price= data.get("raw_price", 0),
+    )
+
+    result = calculate_profits(data, prices)
+    result["prices"] = prices
+    return jsonify(result)
 
 
 @app.route("/api/watchlist", methods=["GET"])
@@ -142,15 +183,23 @@ def add_to_watchlist():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    calc = calculate_profits(data)
-    expected = calc["expected"]
+    prices = ACTIVE_ENGINE.estimate(
+        player_name  = data.get("player_name", ""),
+        year         = data.get("year", ""),
+        set_name     = data.get("set_name", ""),
+        card_number  = data.get("card_number", ""),
+        sport        = data.get("sport", ""),
+        raw_buy_price= data.get("raw_price", 0),
+    )
+    calc = calculate_profits(data, prices)
+    best = calc["best"]
 
     db = get_db()
     db.execute(
         """INSERT INTO watchlist
            (player_name, year, set_name, card_number, sport,
-            raw_price, psa10_price, expected_profit, expected_roi, recommendation)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            raw_price, psa10_price, best_profit, best_roi, best_option, recommendation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data.get("player_name", ""),
             data.get("year", ""),
@@ -158,10 +207,11 @@ def add_to_watchlist():
             data.get("card_number", ""),
             data.get("sport", ""),
             float(data.get("raw_price", 0)),
-            float(data.get("psa10_market", 0)),
-            expected["profit"],
-            expected["roi"],
-            expected["recommendation"],
+            prices["psa10"],
+            best["profit"],
+            best["roi"],
+            best["label"],
+            calc["recommendation"],
         ),
     )
     db.commit()
@@ -177,7 +227,6 @@ def delete_from_watchlist(card_id):
 
 
 if __name__ == "__main__":
-    # Glitch injects PORT; fall back to 5000 locally.
     os.makedirs(".data", exist_ok=True)
     init_db()
     port = int(os.environ.get("PORT", 5000))

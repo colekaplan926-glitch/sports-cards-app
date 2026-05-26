@@ -1,6 +1,6 @@
 // ── State ──────────────────────────────────────────────
 let calcResults = null;
-let calcData = null;
+let calcData    = null;
 
 // ── Tabs ───────────────────────────────────────────────
 function showPage(name) {
@@ -9,15 +9,6 @@ function showPage(name) {
   document.getElementById("page-" + name).classList.add("active");
   document.querySelector(`[data-tab="${name}"]`).classList.add("active");
   if (name === "watchlist") loadWatchlist();
-}
-
-// ── Probability totals ─────────────────────────────────
-function updateProbTotal() {
-  const ids = ["prob_10", "prob_9", "prob_8", "prob_lower"];
-  const total = ids.reduce((s, id) => s + (parseFloat(document.getElementById(id).value) || 0), 0);
-  const el = document.getElementById("prob-total");
-  el.textContent = `Total: ${total.toFixed(1)}%`;
-  el.className = "prob-total " + (Math.abs(total - 100) > 0.1 ? "text-red" : "text-green");
 }
 
 // ── Format helpers ─────────────────────────────────────
@@ -37,10 +28,8 @@ const profitClass = v => parseFloat(v) >= 0 ? "text-green" : "text-red";
 // ── Calculate ──────────────────────────────────────────
 async function calculate() {
   const fields = [
-    "player_name","year","set_name","card_number","sport",
-    "raw_price","grading_cost","shipping_fees","selling_fee_pct",
-    "raw_market","psa10_market","psa9_market","psa8_market",
-    "prob_10","prob_9","prob_8","prob_lower"
+    "player_name", "year", "set_name", "card_number", "sport",
+    "raw_price", "grading_cost", "shipping_fees", "selling_fee_pct",
   ];
 
   const data = {};
@@ -49,131 +38,180 @@ async function calculate() {
     if (el) data[f] = el.value;
   }
 
-  // Validation
   if (!data.raw_price || parseFloat(data.raw_price) <= 0) {
     showToast("Enter a raw purchase price", "error");
     return;
   }
 
-  const probTotal = ["prob_10","prob_9","prob_8","prob_lower"]
-    .reduce((s, id) => s + (parseFloat(data[id]) || 0), 0);
-  if (Math.abs(probTotal - 100) > 0.5) {
-    showToast(`Grade probabilities must sum to 100% (currently ${probTotal.toFixed(1)}%)`, "error");
-    return;
-  }
+  const btn = document.getElementById("calc-btn");
+  btn.disabled = true;
+  btn.textContent = "Estimating…";
 
   try {
     const res = await fetch("/api/calculate", {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body:    JSON.stringify(data),
     });
     const result = await res.json();
     calcResults = result;
-    calcData = data;
+    calcData    = data;
     renderResults(result, data);
   } catch (e) {
     showToast("Calculation failed. Check your inputs.", "error");
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = "⚡ Estimate & Calculate";
   }
 }
 
 // ── Render Results ─────────────────────────────────────
 function renderResults(r, data) {
   document.getElementById("results-placeholder").style.display = "none";
-  document.getElementById("results-content").style.display = "flex";
+  document.getElementById("results-content").style.display     = "flex";
 
-  const { grades, expected } = r;
-  const playerName = data.player_name || "Card";
-  const year = data.year ? data.year + " " : "";
-  const setName = data.set_name || "";
-  const cardNum = data.card_number ? " #" + data.card_number : "";
-  const cardTitle = `${year}${playerName}${setName ? " – " + setName : ""}${cardNum}`;
+  const { results, best, recommendation, prices, costs } = r;
 
-  // Recommendation banner
-  const recEl = document.getElementById("rec-banner");
+  // Card title
+  const parts = [data.year, data.player_name].filter(Boolean).join(" ");
+  const setStr = data.set_name ? " – " + data.set_name : "";
+  const numStr = data.card_number ? " #" + data.card_number : "";
+  const cardTitle = parts + setStr + numStr || "Card";
+
+  // ── Recommendation banner ──
   const recMap = {
-    "Strong Buy":    { cls: "rec-strong-buy",   badge: "badge-strong-buy",   icon: "📈", color: "text-green" },
-    "Possible Buy":  { cls: "rec-possible-buy",  badge: "badge-possible-buy", icon: "🤔", color: "text-yellow" },
-    "Avoid":         { cls: "rec-avoid",         badge: "badge-avoid",        icon: "🚫", color: "text-red" },
+    "Strong Buy":   { cls: "rec-strong-buy",  icon: "📈", color: "text-green"  },
+    "Possible Buy": { cls: "rec-possible-buy", icon: "🤔", color: "text-yellow" },
+    "Avoid":        { cls: "rec-avoid",        icon: "🚫", color: "text-red"    },
   };
-  const recInfo = recMap[expected.recommendation] || recMap["Avoid"];
-  recEl.className = "recommendation-banner " + recInfo.cls;
-  recEl.innerHTML = `
-    <div class="rec-icon">${recInfo.icon}</div>
+  const rm  = recMap[recommendation] || recMap["Avoid"];
+  const rec = document.getElementById("rec-banner");
+  rec.className = "recommendation-banner " + rm.cls;
+  rec.innerHTML = `
+    <div class="rec-icon">${rm.icon}</div>
     <div>
-      <div class="rec-label">Recommendation for</div>
-      <div class="rec-title ${recInfo.color}">${expected.recommendation}</div>
-      <div class="rec-sub">${cardTitle}</div>
+      <div class="rec-label">Recommendation</div>
+      <div class="rec-title ${rm.color}">${recommendation}</div>
+      <div class="rec-sub">${cardTitle} · Best: ${best.label}</div>
     </div>
-    <div style="margin-left:auto;text-align:right;">
-      <div class="stat-label">Expected ROI</div>
-      <div class="stat-value ${recInfo.color}">${fmtPct(expected.roi)}</div>
-      <div class="stat-sub">Exp. Profit: ${fmt$(expected.profit)}</div>
-    </div>
-  `;
+    <div style="margin-left:auto;text-align:right">
+      <div class="stat-label">Best ROI</div>
+      <div class="stat-value ${rm.color}">${fmtPct(best.roi)}</div>
+      <div class="stat-sub">Profit: ${fmt$(best.profit)}</div>
+    </div>`;
 
-  // Stats row
-  document.getElementById("stat-ev-profit").textContent = fmt$(expected.profit);
-  document.getElementById("stat-ev-profit").className = "stat-value " + profitClass(expected.profit);
-  document.getElementById("stat-ev-roi").textContent = fmtPct(expected.roi);
-  document.getElementById("stat-ev-roi").className = "stat-value " + profitClass(expected.roi);
-  document.getElementById("stat-best-grade").textContent = bestGrade(grades);
-  document.getElementById("stat-total-cost").textContent = fmt$(grades.psa10.total_cost);
+  // ── Estimated values strip ──
+  document.getElementById("est-raw").textContent   = fmt$(prices.raw_market);
+  document.getElementById("est-psa8").textContent  = fmt$(prices.psa8);
+  document.getElementById("est-psa9").textContent  = fmt$(prices.psa9);
+  document.getElementById("est-psa10").textContent = fmt$(prices.psa10);
+  document.getElementById("est-source").textContent = prices.source;
+  document.getElementById("est-confidence").className =
+    "confidence-badge conf-" + prices.confidence;
+  document.getElementById("est-confidence").textContent =
+    prices.confidence.charAt(0).toUpperCase() + prices.confidence.slice(1) + " confidence";
 
-  // Results table
-  const tbody = document.getElementById("results-tbody");
+  // ── Profit table ──
   const rows = [
-    { label: "PSA 10", cls: "grade-10", key: "psa10" },
-    { label: "PSA 9",  cls: "grade-9",  key: "psa9"  },
-    { label: "PSA 8",  cls: "grade-8",  key: "psa8"  },
-    { label: "Raw",    cls: "grade-raw", key: "raw"  },
+    { label: "Sell Raw",      cls: "grade-raw", key: "raw"   },
+    { label: "Grade → PSA 8", cls: "grade-8",   key: "psa8"  },
+    { label: "Grade → PSA 9", cls: "grade-9",   key: "psa9"  },
+    { label: "Grade → PSA 10",cls: "grade-10",  key: "psa10" },
   ];
 
-  tbody.innerHTML = rows.map(row => {
-    const g = grades[row.key];
-    return `<tr>
-      <td><span class="grade-badge ${row.cls}">${row.label}</span></td>
+  document.getElementById("results-tbody").innerHTML = rows.map(row => {
+    const g        = results[row.key];
+    const isBest   = row.key === best.key;
+    const bestMark = isBest ? ' <span class="best-badge">★ Best</span>' : "";
+    return `<tr class="${isBest ? "row-best" : ""}">
+      <td><span class="grade-badge ${row.cls}">${row.label}</span>${bestMark}</td>
       <td class="fw-bold">${fmt$(g.sale_price)}</td>
-      <td>${fmt$(g.total_cost)}<div class="cell-sub">+${fmt$(g.selling_fees)} fees</div></td>
+      <td>${fmt$(g.cost_basis)}<div class="cell-sub">+${fmt$(g.sell_fee)} selling fees</div></td>
       <td class="${profitClass(g.profit)} fw-bold">${fmt$(g.profit)}</td>
       <td class="${profitClass(g.roi)} fw-bold">${fmtPct(g.roi)}</td>
     </tr>`;
   }).join("");
+
+  // ── Formulas ──
+  renderFormulas(results, costs, prices);
 }
 
-function bestGrade(grades) {
-  const order = ["psa10", "psa9", "psa8", "raw"];
-  const labels = { psa10: "PSA 10", psa9: "PSA 9", psa8: "PSA 8", raw: "Raw" };
-  let best = order[0];
-  order.forEach(k => {
-    if ((grades[k].roi || 0) > (grades[best].roi || 0)) best = k;
-  });
-  return labels[best];
+// ── Render Formulas ────────────────────────────────────
+function renderFormulas(results, costs, prices) {
+  const { raw_buy, grading, shipping, fee_pct, graded_cost } = costs;
+  const raw = results.raw;
+  const p10 = results.psa10;
+
+  const feeLabel = `${fee_pct}%`;
+
+  document.getElementById("formulas-section").innerHTML = `
+    <div class="formula-grid">
+
+      <div class="formula-block">
+        <div class="formula-heading">Sell Raw Now</div>
+        <div class="formula-line">
+          <span class="fl-label">Cost basis</span>
+          <span class="fl-expr">= Raw Purchase Price</span>
+          <span class="fl-val">${fmt$(raw_buy)}</span>
+        </div>
+        <div class="formula-line">
+          <span class="fl-label">Selling fees</span>
+          <span class="fl-expr">= Raw Market × ${feeLabel}</span>
+          <span class="fl-val">${fmt$(raw.sell_fee)}</span>
+        </div>
+        <div class="formula-line formula-result">
+          <span class="fl-label">Profit</span>
+          <span class="fl-expr">= ${fmt$(raw.sale_price)} − ${fmt$(raw_buy)} − ${fmt$(raw.sell_fee)}</span>
+          <span class="fl-val ${profitClass(raw.profit)} fw-bold">${fmt$(raw.profit)}</span>
+        </div>
+        <div class="formula-line formula-result">
+          <span class="fl-label">ROI</span>
+          <span class="fl-expr">= Profit ÷ ${fmt$(raw_buy)} × 100</span>
+          <span class="fl-val ${profitClass(raw.roi)} fw-bold">${fmtPct(raw.roi)}</span>
+        </div>
+      </div>
+
+      <div class="formula-block">
+        <div class="formula-heading">Grade &amp; Sell (PSA 10 example)</div>
+        <div class="formula-line">
+          <span class="fl-label">Cost basis</span>
+          <span class="fl-expr">= Raw + Grading + Shipping</span>
+          <span class="fl-val">${fmt$(raw_buy)} + ${fmt$(grading)} + ${fmt$(shipping)} = ${fmt$(graded_cost)}</span>
+        </div>
+        <div class="formula-line">
+          <span class="fl-label">Selling fees</span>
+          <span class="fl-expr">= PSA 10 Value × ${feeLabel}</span>
+          <span class="fl-val">${fmt$(p10.sell_fee)}</span>
+        </div>
+        <div class="formula-line formula-result">
+          <span class="fl-label">Profit</span>
+          <span class="fl-expr">= ${fmt$(p10.sale_price)} − ${fmt$(graded_cost)} − ${fmt$(p10.sell_fee)}</span>
+          <span class="fl-val ${profitClass(p10.profit)} fw-bold">${fmt$(p10.profit)}</span>
+        </div>
+        <div class="formula-line formula-result">
+          <span class="fl-label">ROI</span>
+          <span class="fl-expr">= Profit ÷ ${fmt$(graded_cost)} × 100</span>
+          <span class="fl-val ${profitClass(p10.roi)} fw-bold">${fmtPct(p10.roi)}</span>
+        </div>
+      </div>
+
+    </div>`;
 }
 
 // ── Add to Watchlist ───────────────────────────────────
 async function addToWatchlist() {
-  if (!calcData) {
-    showToast("Calculate first before saving", "error");
-    return;
-  }
-  if (!calcData.player_name) {
-    showToast("Enter a player name before saving", "error");
-    return;
-  }
+  if (!calcData) { showToast("Calculate first before saving", "error"); return; }
+  if (!calcData.player_name) { showToast("Enter a player name before saving", "error"); return; }
 
   try {
     const res = await fetch("/api/watchlist", {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(calcData),
+      body:    JSON.stringify(calcData),
     });
     const result = await res.json();
-    if (result.success) {
-      showToast("Card saved to watchlist!", "success");
-    } else {
-      showToast("Failed to save card", "error");
-    }
+    if (result.success) showToast("Card saved to watchlist!", "success");
+    else showToast("Failed to save card", "error");
   } catch (e) {
     showToast("Error saving card", "error");
   }
@@ -182,7 +220,7 @@ async function addToWatchlist() {
 // ── Watchlist ──────────────────────────────────────────
 async function loadWatchlist() {
   try {
-    const res = await fetch("/api/watchlist");
+    const res   = await fetch("/api/watchlist");
     const cards = await res.json();
     renderWatchlist(cards);
   } catch (e) {
@@ -199,24 +237,25 @@ function renderWatchlist(cards) {
     empty.style.display = "block";
     return;
   }
-
   empty.style.display = "none";
+
   tbody.innerHTML = cards.map(card => {
-    const badgeClass = recBadgeClass(card.recommendation);
-    const cardName = [card.year, card.player_name].filter(Boolean).join(" ")
-      + (card.set_name ? " – " + card.set_name : "")
-      + (card.card_number ? " #" + card.card_number : "");
+    const badgeCls = recBadgeClass(card.recommendation);
+    const cardLine = [card.year, card.player_name].filter(Boolean).join(" ")
+      + (card.set_name    ? " – " + card.set_name    : "")
+      + (card.card_number ? " #"  + card.card_number : "");
     return `<tr>
       <td>
         <div class="fw-bold">${card.player_name || "—"}</div>
-        <div class="cell-sub">${cardName}</div>
+        <div class="cell-sub">${cardLine}</div>
       </td>
       <td>${card.sport || "—"}</td>
       <td class="fw-bold">${fmt$(card.raw_price)}</td>
       <td class="fw-bold">${fmt$(card.psa10_price)}</td>
-      <td class="${profitClass(card.expected_profit)} fw-bold">${fmt$(card.expected_profit)}</td>
-      <td class="${profitClass(card.expected_roi)} fw-bold">${fmtPct(card.expected_roi)}</td>
-      <td><span class="badge ${badgeClass}">${card.recommendation}</span></td>
+      <td class="${profitClass(card.best_profit)} fw-bold">${fmt$(card.best_profit)}</td>
+      <td class="${profitClass(card.best_roi)} fw-bold">${fmtPct(card.best_roi)}</td>
+      <td><div class="fw-bold fs-sm">${card.best_option || "—"}</div></td>
+      <td><span class="badge ${badgeCls}">${card.recommendation}</span></td>
       <td>
         <button class="btn btn-danger btn-sm watchlist-action" onclick="deleteCard(${card.id})">Remove</button>
       </td>
@@ -225,7 +264,7 @@ function renderWatchlist(cards) {
 }
 
 function recBadgeClass(rec) {
-  if (rec === "Strong Buy") return "badge-strong-buy";
+  if (rec === "Strong Buy")   return "badge-strong-buy";
   if (rec === "Possible Buy") return "badge-possible-buy";
   return "badge-avoid";
 }
@@ -243,8 +282,8 @@ async function deleteCard(id) {
 // ── Toast ──────────────────────────────────────────────
 function showToast(msg, type = "info") {
   const container = document.getElementById("toast-container");
-  const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
+  const toast     = document.createElement("div");
+  toast.className  = `toast ${type}`;
   toast.textContent = msg;
   container.appendChild(toast);
   setTimeout(() => {
@@ -257,16 +296,7 @@ function showToast(msg, type = "info") {
 function resetForm() {
   document.getElementById("calc-form").reset();
   calcResults = null;
-  calcData = null;
+  calcData    = null;
   document.getElementById("results-placeholder").style.display = "flex";
-  document.getElementById("results-content").style.display = "none";
-  updateProbTotal();
+  document.getElementById("results-content").style.display     = "none";
 }
-
-// ── Init ───────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-  updateProbTotal();
-  ["prob_10","prob_9","prob_8","prob_lower"].forEach(id => {
-    document.getElementById(id).addEventListener("input", updateProbTotal);
-  });
-});

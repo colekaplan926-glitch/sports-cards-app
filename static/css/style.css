@@ -360,35 +360,6 @@ tbody td {
   border-bottom: 1px solid var(--border);
 }
 
-/* ── Probability sliders ── */
-.prob-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.prob-label {
-  min-width: 80px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.prob-input {
-  width: 75px !important;
-  text-align: center;
-}
-
-.prob-total {
-  text-align: right;
-  font-size: 12px;
-  margin-top: 8px;
-  font-weight: 600;
-}
-
 /* ── Grade badge ── */
 .grade-badge {
   display: inline-flex;
@@ -511,4 +482,172 @@ tbody tr:hover .watchlist-action { opacity: 1; }
 }
 
 .results-placeholder .placeholder-icon { font-size: 3rem; }
-.results-placeholder p { font-size: 14px; max-width: 240px; }
+.results-placeholder p { font-size: 14px; max-width: 280px; }
+
+/* ── Page intro ── */
+.page-intro {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 1.5rem;
+  max-width: 680px;
+}
+
+/* ── Section note & label hint ── */
+.section-note {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0;
+}
+
+.label-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Estimated values ── */
+.est-values-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 600px) {
+  .est-values-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.est-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  text-align: center;
+}
+
+.est-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+
+.est-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.est-source {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* ── Confidence badge ── */
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-left: auto;
+}
+
+.conf-low    { background: rgba(255,95,126,0.12);  color: var(--red);    border: 1px solid rgba(255,95,126,0.25); }
+.conf-medium { background: rgba(255,200,87,0.12);  color: var(--yellow); border: 1px solid rgba(255,200,87,0.25); }
+.conf-high   { background: rgba(0,200,150,0.12);   color: var(--green);  border: 1px solid rgba(0,200,150,0.25); }
+
+/* ── Best row highlight ── */
+.row-best td { background: rgba(108,99,255,0.06); }
+
+.best-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(108,99,255,0.2);
+  color: var(--accent);
+}
+
+/* ── Formulas ── */
+.formula-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+
+@media (max-width: 800px) {
+  .formula-grid { grid-template-columns: 1fr; }
+}
+
+.formula-block {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+}
+
+.formula-heading {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.formula-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  flex-wrap: wrap;
+}
+
+.formula-line:last-child { border-bottom: none; }
+
+.formula-result {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border) !important;
+  font-size: 13px;
+}
+
+.fl-label {
+  min-width: 80px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.fl-expr {
+  color: var(--text-muted);
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+
+.fl-val {
+  margin-left: auto;
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 12px;
+}
