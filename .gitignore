@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+sports_cards.db
+*.db
+.env
