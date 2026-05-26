@@ -13,8 +13,10 @@
 <header class="app-header">
   <div class="logo"><div class="logo-icon">🃏</div>CardGrade Pro</div>
   <nav class="nav-tabs">
-    <button class="nav-tab active" data-tab="calculator" onclick="showPage('calculator')">Calculator</button>
-    <button class="nav-tab"        data-tab="watchlist"  onclick="showPage('watchlist')">Watchlist</button>
+    <button class="nav-tab active" data-tab="calculator"     onclick="showPage('calculator')">Calculator</button>
+    <button class="nav-tab"        data-tab="watchlist"      onclick="showPage('watchlist')">Watchlist</button>
+    <button class="nav-tab"        data-tab="snipe-searches" onclick="showPage('snipe-searches')">Snipe Searches</button>
+    <button class="nav-tab"        data-tab="snipe-deals"    onclick="showPage('snipe-deals')">Snipe Deals</button>
   </nav>
 </header>
 
@@ -183,9 +185,126 @@
     </div>
   </div>
 
+  <!-- ════════════════ SNIPE SEARCHES PAGE ════════════════ -->
+  <div class="page" id="page-snipe-searches">
+    <div class="page-intro">
+      <p>Create saved searches and the Snipe Finder will automatically scan eBay for raw listings that meet your profit thresholds. Market values are always sourced from real sold comps.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title" style="justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px"><span class="icon icon-purple">🎯</span> Saved Searches</div>
+        <button class="btn btn-primary btn-sm" onclick="openCreateModal()">＋ New Search</button>
+      </div>
+      <div id="searches-empty" class="empty-state" style="display:none">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-title">No saved searches yet</div>
+        <p class="text-muted">Create a search to start scanning for raw card buying opportunities.</p>
+      </div>
+      <div id="searches-list" class="search-list"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════ SNIPE DEALS PAGE ════════════════ -->
+  <div class="page" id="page-snipe-deals">
+    <div class="page-intro">
+      <p>Raw cards found by your saved searches that pass your profit and ROI thresholds. All pricing uses median sold comps — never active listing prices.</p>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap">
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="ALL"   onclick="setDealsFilter('ALL')">All Deals</button>
+        <button class="filter-tab"        data-filter="BUY"   onclick="setDealsFilter('BUY')">BUY</button>
+        <button class="filter-tab"        data-filter="WATCH" onclick="setDealsFilter('WATCH')">WATCH</button>
+        <button class="filter-tab"        data-filter="PASS"  onclick="setDealsFilter('PASS')">PASS</button>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="loadDeals()">↺ Refresh</button>
+    </div>
+
+    <div id="deals-empty" class="empty-state" style="display:none">
+      <div class="empty-icon">📭</div>
+      <div class="empty-title">No deals found</div>
+      <p class="text-muted">Run a saved search to start finding raw card buying opportunities.</p>
+    </div>
+
+    <div id="deals-grid" class="deal-cards-grid"></div>
+  </div>
+
 </main>
+
+<!-- ════════════════ SEARCH MODAL ════════════════ -->
+<div class="modal-overlay" id="search-modal" style="display:none" onclick="if(event.target===this)closeSearchModal()">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">New Saved Search</div>
+    <form id="search-form" onsubmit="return false">
+      <div class="grid-2">
+        <div class="form-group" style="grid-column:1/-1">
+          <label for="sf-name">Search Name</label>
+          <input type="text" id="sf-name" placeholder="e.g. Mahomes Rookies Under $100" />
+        </div>
+        <div class="form-group">
+          <label for="sf-sport">Sport</label>
+          <select id="sf-sport">
+            <option value="">Any sport</option>
+            <option>Football</option><option>Basketball</option>
+            <option>Baseball</option><option>Soccer</option>
+            <option>Hockey</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="sf-frequency">Scan Frequency</label>
+          <select id="sf-frequency">
+            <option value="daily">Daily (06:00 UTC)</option>
+            <option value="hourly">Hourly</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label for="sf-players">Player Names <span class="label-hint">(comma-separated, leave blank for any)</span></label>
+          <input type="text" id="sf-players" placeholder="e.g. Patrick Mahomes, Josh Allen" />
+        </div>
+        <div class="form-group">
+          <label for="sf-year-min">Year Min</label>
+          <input type="number" id="sf-year-min" value="2015" min="1950" max="2030" />
+        </div>
+        <div class="form-group">
+          <label for="sf-year-max">Year Max</label>
+          <input type="number" id="sf-year-max" value="2024" min="1950" max="2030" />
+        </div>
+        <div class="form-group">
+          <label for="sf-max-price">Max Raw Price ($)</label>
+          <input type="number" id="sf-max-price" value="100" min="1" step="1" />
+        </div>
+        <div class="form-group">
+          <label for="sf-min-profit">Min Profit ($)</label>
+          <input type="number" id="sf-min-profit" value="0" step="1" />
+        </div>
+        <div class="form-group">
+          <label for="sf-min-roi">Min ROI (%)</label>
+          <input type="number" id="sf-min-roi" value="20" step="1" />
+        </div>
+        <div class="form-group">
+          <label for="sf-fee-pct">Selling Fee % <span class="label-hint">(eBay ≈ 12.9%)</span></label>
+          <input type="number" id="sf-fee-pct" value="12.9" step="0.1" />
+        </div>
+        <div class="form-group">
+          <label for="sf-grading">Grading Fee ($)</label>
+          <input type="number" id="sf-grading" value="25" step="1" />
+        </div>
+        <div class="form-group">
+          <label for="sf-shipping">Shipping to/from Grader ($)</label>
+          <input type="number" id="sf-shipping" value="15" step="1" />
+        </div>
+      </div>
+      <div class="btn-group" style="margin-top:1.5rem">
+        <button class="btn btn-primary" onclick="saveSearch()">Save Search</button>
+        <button class="btn btn-outline" type="button" onclick="closeSearchModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <div class="toast-container" id="toast-container"></div>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/snipe.js"></script>
 </body>
 </html>

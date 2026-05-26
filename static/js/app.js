@@ -8,7 +8,9 @@ function showPage(name) {
   document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
   document.getElementById("page-" + name).classList.add("active");
   document.querySelector(`[data-tab="${name}"]`).classList.add("active");
-  if (name === "watchlist") loadWatchlist();
+  if (name === "watchlist")      loadWatchlist();
+  if (name === "snipe-searches") loadSearches();
+  if (name === "snipe-deals")    loadDeals();
 }
 
 // ── Format helpers ─────────────────────────────────────
