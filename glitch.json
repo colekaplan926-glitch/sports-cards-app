@@ -1,0 +1,18 @@
+{
+  "install": "pip3 install -r requirements.txt",
+  "start": "python3 app.py",
+  "watch": {
+    "install": {
+      "include": ["^requirements\\.txt$"]
+    },
+    "restart": {
+      "include": [
+        "^app\\.py$",
+        "^\\.env$",
+        "^templates/.*$",
+        "^static/.*$"
+      ]
+    },
+    "throttle": 1000
+  }
+}

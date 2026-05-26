@@ -3,7 +3,11 @@ import os
 from flask import Flask, request, jsonify, render_template, g
 
 app = Flask(__name__)
-DATABASE = "sports_cards.db"
+
+# On Glitch, .data/ persists across restarts and is excluded from git.
+# Locally, fall back to the project root.
+_data_dir = ".data" if os.path.isdir(".data") else "."
+DATABASE = os.path.join(_data_dir, "sports_cards.db")
 
 
 def get_db():
@@ -173,5 +177,8 @@ def delete_from_watchlist(card_id):
 
 
 if __name__ == "__main__":
+    # Glitch injects PORT; fall back to 5000 locally.
+    os.makedirs(".data", exist_ok=True)
     init_db()
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
