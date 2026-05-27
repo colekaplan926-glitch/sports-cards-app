@@ -121,6 +121,7 @@
               Copy sold listings from eBay or 130point and paste below — all grades at once:
             </p>
             <textarea id="bulk-paste-area" class="bulk-textarea"
+              onpaste="setTimeout(scheduleParse,10)" oninput="scheduleParse()"
               placeholder="Paste sold listings here, one per line. Examples:&#10;2017 Mahomes Donruss #327 PSA 10  $1,245&#10;2017 Mahomes Donruss #327 PSA 9   $430&#10;2017 Mahomes Donruss #327 Raw      $88&#10;&#10;Works with eBay text, 130point tables, or any format with price + grade."></textarea>
 
             <div id="bulk-parse-summary" class="parse-summary" style="display:none"></div>
@@ -130,6 +131,9 @@
               <button class="btn btn-outline" onclick="importFromClipboard()" title="Paste directly from clipboard">📋 From Clipboard</button>
               <button class="btn btn-ghost btn-sm" onclick="clearBulkImport()" title="Clear">✕</button>
             </div>
+
+            <!-- Comp preview table -->
+            <div id="comp-preview-area" class="comp-preview-area" style="display:none"></div>
 
             <!-- Per-grade detection badges -->
             <div class="comp-detection-row" id="comp-detection-row" style="display:none">

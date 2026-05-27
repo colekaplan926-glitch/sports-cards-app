@@ -1,8 +1,10 @@
 // ── State ──────────────────────────────────────────────
-let calcResults = null;
-let calcData    = null;
-let _pollTimer  = null;
+let calcResults  = null;
+let calcData     = null;
+let _pollTimer   = null;
 let _knownCompTs = {};
+let _parsedComps = [];
+let _parseDebounce = null;
 
 // ── Tabs ───────────────────────────────────────────────
 function showPage(name) {
@@ -81,44 +83,101 @@ function updateCompLinks() {
   }
 }
 
-// ── Quick Import helpers ───────────────────────────────
+// ── Lookback-window parser helpers ─────────────────────
 const _BULK_EXCLUDE = ["lot of"," lot ","lots of","reprint","custom card",
-                        "fake ","proxy","redemption","blank back","commemorative"];
+                       "fake ","proxy","redemption","blank back","commemorative"];
+
+const _OTHER_GRADER_PAT = /\b(bgs|sgc|cgc|beckett|hga|gma)\b/i;
+const _AUTO_KW_PAT      = /\b(auto|autograph|signed)\b/i;
+const _SHIP_KW_PAT      = /\bshipping\b|\bpostage\b|\bhandling\b/i;
+const _GRADE10_PAT      = /\bpsa\s*(?:gem\s*mint\s*)?10\b|\bgem\s*mt\s*10\b|\bgrade\s*10\b/i;
+const _GRADE9_PAT       = /\bpsa\s*9(?!\d)|\bmint\s*9\b|\bgrade\s*9\b/i;
+const _GRADE8_PAT       = /\bpsa\s*8(?!\d)|\bnm.?mt\s*8\b|\bgrade\s*8\b/i;
+const _ANY_PSA_PAT      = /\bpsa\s*\d+/i;
+const _DOLLAR_PAT       = /(?:US\s*)?\$\s*([0-9,]+(?:\.\d{1,2})?)/i;
+const _SALE_PAT         = /(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)\s+([0-9][0-9,]*(?:\.\d{2})?)\b/i;
+
+function _extractDollarPrice(line) {
+  let m = line.match(_DOLLAR_PAT);
+  if (m) {
+    const v = parseFloat(m[1].replace(/,/g, ""));
+    return (v > 0.5 && v < 500000) ? v : null;
+  }
+  m = line.match(_SALE_PAT);
+  if (m) {
+    const v = parseFloat(m[1].replace(/,/g, ""));
+    return (v > 0.5 && v < 500000) ? v : null;
+  }
+  return null;
+}
+
+function _detectGrade(ll) {
+  if (_OTHER_GRADER_PAT.test(ll)) return "SKIP";
+  const isAutoCard = (document.getElementById("variation")?.value || "").toLowerCase().includes("auto");
+  if (!isAutoCard && _AUTO_KW_PAT.test(ll)) return "SKIP";
+  if (_BULK_EXCLUDE.some(kw => ll.includes(kw))) return "SKIP";
+  if (_SHIP_KW_PAT.test(ll)) return "SKIP";
+  if (_GRADE10_PAT.test(ll)) return "psa10";
+  if (_GRADE9_PAT.test(ll))  return "psa9";
+  if (_GRADE8_PAT.test(ll))  return "psa8";
+  if (_ANY_PSA_PAT.test(ll)) return "SKIP"; // PSA 7/6/5 etc — skip unknown grades
+  return null; // no grade keyword → raw candidate
+}
+
+function _isBarePriceLine(line) {
+  let s = line.replace(/(?:US\s*)?\$\s*[0-9,]+(?:\.\d{1,2})?/gi, "");
+  s = s.replace(/(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)\s+[0-9][0-9,]*(?:\.\d{2})?/gi, "");
+  return s.trim().length < 12;
+}
+
+function _isTrivialLine(ll) {
+  const s = ll.replace(/\b(?:sold|for|free|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|pm|am|the|and|or)\b|\d+/gi, "").trim();
+  return s.length < 5;
+}
 
 function _parseBulkText(text) {
-  const variation  = (document.getElementById("variation")?.value || "").toLowerCase();
-  const isAutoCard = variation.includes("auto");
-  const result     = { raw: [], psa8: [], psa9: [], psa10: [] };
+  const result = { raw: [], psa8: [], psa9: [], psa10: [] };
+  const parsedComps = [];
 
-  for (const line of text.split(/\r?\n/)) {
-    const l  = line.trim();
-    if (!l) continue;
-    const ll = l.toLowerCase();
+  const lines = text.split(/\r?\n/);
+  let prevGrade    = null;
+  let prevGradeIdx = -10;
 
-    if (_BULK_EXCLUDE.some(kw => ll.includes(kw))) continue;
-    if (!isAutoCard && /\b(auto|autograph|signed)\b/.test(ll)) continue;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const ll = line.toLowerCase();
 
-    // $ sign required, OR explicit sale language before a bare number.
-    // Bare numbers (years, card #, jersey #, serial #, grades) are never prices.
-    const pm = l.match(/(?:US\s*)?\$\s*([0-9,]+(?:\.\d{1,2})?)/i)
-            || l.match(/(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)\s+([0-9][0-9,]*(?:\.\d{2})?)/i);
-    if (!pm) continue;
-    const price = parseFloat((pm[1] || "").replace(/,/g, ""));
-    if (!(price > 0.5 && price < 500_000)) continue;
+    const gradeOnLine = _detectGrade(ll);
+    if (gradeOnLine === "SKIP") { prevGrade = null; continue; }
 
-    // Skip other graders
-    if (/\b(bgs|sgc|cgc|beckett|hga|gma)\b/.test(ll)) continue;
-
-    let grade;
-    if (/psa\s*(?:gem\s*mint\s*)?10\b/.test(ll))   grade = "psa10";
-    else if (/psa\s*9(?!\d)/.test(ll))              grade = "psa9";
-    else if (/psa\s*8(?!\d)/.test(ll))              grade = "psa8";
-    else if (/\bpsa\s*\d+/.test(ll))                continue; // PSA 7 / 6 etc.
-    else                                             grade = "raw";
-
-    result[grade].push(price);
+    const price = _extractDollarPrice(line);
+    if (price !== null) {
+      const bare = _isBarePriceLine(line);
+      let grade;
+      if (gradeOnLine) {
+        grade         = gradeOnLine;
+        prevGrade     = gradeOnLine;
+        prevGradeIdx  = i;
+      } else if (bare && prevGrade !== null && (i - prevGradeIdx) <= 2) {
+        grade = prevGrade; // eBay multi-line: grade on title, price on next line
+      } else {
+        grade = "raw";
+        if (!bare) prevGrade = null;
+      }
+      result[grade].push(price);
+      parsedComps.push({ grade, price, line: line.slice(0, 80) });
+    } else {
+      if (gradeOnLine) {
+        prevGrade    = gradeOnLine;
+        prevGradeIdx = i;
+      } else if (!_isTrivialLine(ll)) {
+        prevGrade = null; // new substantive listing title resets context
+      }
+    }
   }
-  return result;
+
+  return { result, parsedComps };
 }
 
 function _applyIQR(prices) {
@@ -152,27 +211,39 @@ function _setBadge(grade, count, median) {
   }
 }
 
-async function importBulkComps() {
-  const textarea = document.getElementById("bulk-paste-area");
-  const text     = (textarea?.value || "").trim();
-  if (!text) { showToast("Paste sold listings first", "error"); return; }
+// ── Debounced auto-parse ───────────────────────────────
+function scheduleParse() {
+  if (_parseDebounce) clearTimeout(_parseDebounce);
+  _parseDebounce = setTimeout(_runAutoparse, 400);
+}
 
-  const parsed = _parseBulkText(text);
-  const detRow = document.getElementById("comp-detection-row");
+function _runAutoparse() {
+  _parseDebounce = null;
+  const textarea = document.getElementById("bulk-paste-area");
+  const text = (textarea?.value || "").trim();
+  if (!text) { clearBulkImport(); return; }
+
+  const { result, parsedComps } = _parseBulkText(text);
+  _parsedComps = parsedComps;
+  _applyResultToUI(result, parsedComps, /*autoCalc=*/false);
+}
+
+function _applyResultToUI(result, parsedComps, autoCalc) {
+  const detRow    = document.getElementById("comp-detection-row");
   const summaryEl = document.getElementById("bulk-parse-summary");
   let anyFound = false;
   const summaryParts = [];
+  const gradeLabels  = { raw:"Raw", psa8:"PSA 8", psa9:"PSA 9", psa10:"PSA 10" };
 
-  for (const [grade, rawPrices] of Object.entries(parsed)) {
+  for (const [grade, rawPrices] of Object.entries(result)) {
     const prices = _applyIQR(rawPrices);
     const inp    = document.getElementById("comps_" + grade);
-
     if (prices.length > 0) {
       const med = _median(prices);
       const csv = prices.map(p => Number.isInteger(p) ? p : p.toFixed(2)).join(", ");
       if (inp) inp.value = csv;
       _setBadge(grade, prices.length, med);
-      summaryParts.push(`${prices.length} ${{ raw:"Raw",psa8:"PSA 8",psa9:"PSA 9",psa10:"PSA 10" }[grade]}`);
+      summaryParts.push(`${prices.length} ${gradeLabels[grade]}`);
       anyFound = true;
     } else {
       if (inp) inp.value = "";
@@ -181,24 +252,45 @@ async function importBulkComps() {
   }
 
   if (detRow) detRow.style.display = anyFound ? "" : "none";
+  renderCompPreview(parsedComps);
 
   if (!anyFound) {
     if (summaryEl) {
       summaryEl.textContent = "No valid sold prices detected. Prices must include a $ sign — e.g. \"PSA 9 $430\" or \"Sold $1,245\".";
       summaryEl.style.display = "";
     }
+    return;
+  }
+
+  if (summaryEl) {
+    summaryEl.textContent = "Detected: " + summaryParts.join("  ·  ");
+    summaryEl.style.display = "";
+  }
+
+  if (autoCalc) {
+    const rawPrice = parseFloat(document.getElementById("raw_price")?.value || 0);
+    if (rawPrice > 0) calculate();
+    else showToast("Comps loaded! Enter a raw purchase price and click ⚡ Calculate.", "success");
+  }
+}
+
+async function importBulkComps() {
+  const textarea = document.getElementById("bulk-paste-area");
+  const text     = (textarea?.value || "").trim();
+  if (!text) { showToast("Paste sold listings first", "error"); return; }
+
+  const { result, parsedComps } = _parseBulkText(text);
+  _parsedComps = parsedComps;
+
+  // Check if anything was found before deciding to calculate
+  const totalFound = Object.values(result).reduce((s, arr) => s + arr.length, 0);
+  if (!totalFound) {
+    _applyResultToUI(result, parsedComps, false);
     showToast("No valid sold prices — include $ sign with prices", "error");
     return;
   }
 
-  if (summaryEl) { summaryEl.textContent = "Detected: " + summaryParts.join("  ·  "); summaryEl.style.display = ""; }
-
-  const rawPrice = parseFloat(document.getElementById("raw_price")?.value || 0);
-  if (rawPrice > 0) {
-    await calculate();
-  } else {
-    showToast("Comps loaded! Enter a raw purchase price and click Parse & Calculate.", "success");
-  }
+  _applyResultToUI(result, parsedComps, /*autoCalc=*/true);
 }
 
 async function importFromClipboard() {
@@ -215,6 +307,9 @@ async function importFromClipboard() {
 function clearBulkImport() {
   const ta = document.getElementById("bulk-paste-area");
   if (ta) ta.value = "";
+  _parsedComps = [];
+  const previewArea = document.getElementById("comp-preview-area");
+  if (previewArea) { previewArea.style.display = "none"; previewArea.innerHTML = ""; }
   const summaryEl = document.getElementById("bulk-parse-summary");
   if (summaryEl) { summaryEl.style.display = "none"; summaryEl.textContent = ""; }
   const detRow = document.getElementById("comp-detection-row");
@@ -224,6 +319,69 @@ function clearBulkImport() {
     const inp = document.getElementById("comps_" + g);
     if (inp) inp.value = "";
   }
+}
+
+// ── Comp preview table ─────────────────────────────────
+function renderCompPreview(comps) {
+  const area = document.getElementById("comp-preview-area");
+  if (!area) return;
+  if (!comps.length) { area.style.display = "none"; return; }
+
+  const gradeLabels = { raw:"Raw", psa8:"PSA 8", psa9:"PSA 9", psa10:"PSA 10" };
+  const gradeCls    = { raw:"comp-grade-raw", psa8:"comp-grade-psa8", psa9:"comp-grade-psa9", psa10:"comp-grade-psa10" };
+
+  const rows = comps.map((c, i) => `
+    <div class="comp-preview-row" id="comp-row-${i}">
+      <span class="comp-preview-grade ${gradeCls[c.grade]}">${gradeLabels[c.grade]}</span>
+      <span class="comp-preview-price">${fmt$(c.price)}</span>
+      <span class="comp-preview-line">${escHtml(c.line)}</span>
+      <button class="comp-preview-remove" onclick="removeComp(${i})" title="Remove this comp">✕</button>
+    </div>`).join("");
+
+  area.innerHTML = `
+    <div class="comp-preview-header">
+      <span>Parsed Comps (${comps.length})</span>
+      <span class="fs-sm text-muted" style="font-weight:400">Remove bad ones before calculating</span>
+    </div>
+    ${rows}`;
+  area.style.display = "";
+}
+
+function removeComp(idx) {
+  _parsedComps.splice(idx, 1);
+  _rebuildFromParsed();
+}
+
+function _rebuildFromParsed() {
+  const result = { raw: [], psa8: [], psa9: [], psa10: [] };
+  for (const c of _parsedComps) result[c.grade].push(c.price);
+
+  const summaryParts = [];
+  const gradeLabels  = { raw:"Raw", psa8:"PSA 8", psa9:"PSA 9", psa10:"PSA 10" };
+  for (const [grade, rawPrices] of Object.entries(result)) {
+    const prices = _applyIQR(rawPrices);
+    const inp    = document.getElementById("comps_" + grade);
+    if (prices.length > 0) {
+      const med = _median(prices);
+      const csv = prices.map(p => Number.isInteger(p) ? p : p.toFixed(2)).join(", ");
+      if (inp) inp.value = csv;
+      _setBadge(grade, prices.length, med);
+      summaryParts.push(`${prices.length} ${gradeLabels[grade]}`);
+    } else {
+      if (inp) inp.value = "";
+      _setBadge(grade, 0, 0);
+    }
+  }
+
+  const detRow    = document.getElementById("comp-detection-row");
+  const summaryEl = document.getElementById("bulk-parse-summary");
+  const anyFound  = summaryParts.length > 0;
+  if (detRow) detRow.style.display = anyFound ? "" : "none";
+  if (summaryEl) {
+    summaryEl.textContent  = anyFound ? "Detected: " + summaryParts.join("  ·  ") : "All comps removed.";
+    summaryEl.style.display = "";
+  }
+  renderCompPreview(_parsedComps);
 }
 
 // ── Bookmarklet: open sold search + start polling ──────
@@ -270,7 +428,7 @@ function startCompPoll() {
       if (anyNew) {
         const detRow = document.getElementById("comp-detection-row");
         if (detRow) detRow.style.display = "";
-        showToast("Comps received! Click Parse & Calculate.", "success");
+        showToast("Comps received! Click ⚡ Calculate.", "success");
         await calculate();
       }
     } catch { /* network hiccup — retry next tick */ }
@@ -582,6 +740,7 @@ function showToast(msg, type = "info") {
 function resetForm() {
   document.getElementById("calc-form").reset();
   calcResults = null; calcData = null;
+  _parsedComps = [];
   document.getElementById("results-placeholder").style.display = "flex";
   document.getElementById("results-loading").style.display     = "none";
   document.getElementById("results-content").style.display     = "none";

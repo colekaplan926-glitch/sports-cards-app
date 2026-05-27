@@ -1603,3 +1603,92 @@ tbody tr:hover .watchlist-action { opacity: 1; }
   user-select: none;
 }
 .bookmarklet-drag-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+/* ── Comp preview table ── */
+.comp-preview-area {
+  margin-top: .75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.comp-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 12px;
+  background: var(--surface2);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  border-bottom: 1px solid var(--border);
+}
+
+.comp-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.comp-preview-row:last-child { border-bottom: none; }
+
+.comp-preview-grade {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  min-width: 52px;
+  text-align: center;
+}
+
+.comp-grade-raw   { background: rgba(160,160,160,0.12); color: var(--text-muted); }
+.comp-grade-psa8  { background: rgba(251,191,36,0.14);  color: #f59e0b; }
+.comp-grade-psa9  { background: rgba(108,99,255,0.14);  color: var(--accent); }
+.comp-grade-psa10 { background: rgba(52,211,153,0.14);  color: var(--green); }
+
+.comp-preview-price {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 68px;
+  text-align: right;
+}
+
+.comp-preview-line {
+  flex: 1;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.comp-preview-remove {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.comp-preview-remove:hover {
+  background: rgba(239,68,68,0.12);
+  color: #ef4444;
+  border-color: #ef4444;
+}

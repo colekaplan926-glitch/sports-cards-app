@@ -164,6 +164,61 @@ class TestFilteringRules:
         assert r["psa9"] == [430.0]
 
 
+class TestLookbackWindow:
+    """eBay multi-line format: grade on title, price on the next line."""
+
+    def test_multiline_ebay_grade_then_price(self):
+        text = "2017 Patrick Mahomes Donruss #327 PSA 9\n$430.50"
+        r = _parse_bulk_text(text)
+        assert r["psa9"] == [430.50], f"psa9: {r['psa9']}"
+        assert r["raw"]  == [],       f"raw should be empty: {r['raw']}"
+
+    def test_bare_price_borrows_grade_within_two_lines(self):
+        """Grade → trivial line → bare price (2 lines away) → should still borrow."""
+        text = "2017 Mahomes Donruss PSA 10\nSold\n$1245"
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
+        assert r["raw"]   == [],       f"raw should be empty: {r['raw']}"
+
+    def test_grade_context_reset_on_substantive_title(self):
+        """After a PSA 9 comp, a non-trivial listing title resets context → $180 goes to raw."""
+        text = (
+            "2017 Mahomes Donruss PSA 9 Sold $430\n"
+            "2017 Mahomes Donruss Raw Card Good condition\n"
+            "$180"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa9"] == [430.0], f"psa9: {r['psa9']}"
+        assert r["raw"]  == [180.0], f"raw: {r['raw']}"
+
+    def test_trivial_lines_dont_reset_context(self):
+        """Dates and status words between grade line and price line don't break lookback."""
+        text = "2017 Mahomes PSA 10\nNov 2024\n$1245"
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
+        assert r["raw"]   == [],       f"raw should be empty: {r['raw']}"
+
+    def test_lookback_does_not_reach_beyond_two_lines(self):
+        """3+ lines between grade and price → context lost → goes to raw."""
+        text = "2017 Mahomes PSA 10\nSold\nOct 2024\n$1245"
+        r = _parse_bulk_text(text)
+        # 3 lines away — context should be reset, price goes raw
+        assert r["psa10"] == [], f"psa10 should be empty: {r['psa10']}"
+        assert r["raw"]   == [1245.0], f"raw: {r['raw']}"
+
+    def test_multiline_psa9_then_psa10(self):
+        """Two consecutive eBay-style multi-line entries, grades stay separate."""
+        text = (
+            "Mahomes #327 PSA 9\n"
+            "$430\n"
+            "Mahomes #327 PSA 10\n"
+            "$1245"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa9"]  == [430.0],  f"psa9: {r['psa9']}"
+        assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
+
+
 def pytest_approx(val, rel=1e-3):
     """Tiny helper so we don't need to import pytest at module level."""
     import pytest
