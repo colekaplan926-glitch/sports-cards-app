@@ -98,9 +98,10 @@ function _parseBulkText(text) {
     if (_BULK_EXCLUDE.some(kw => ll.includes(kw))) continue;
     if (!isAutoCard && /\b(auto|autograph|signed)\b/.test(ll)) continue;
 
-    // Extract price: $1,245 or $1245 or bare number at end
-    const pm = l.match(/\$\s*([0-9,]+(?:\.\d{1,2})?)/i)
-            || l.match(/(?:^|[\s\t:,])([0-9][0-9,]*(?:\.\d{2})?)(?:\s*(?:usd)?)\s*$/i);
+    // $ sign required, OR explicit sale language before a bare number.
+    // Bare numbers (years, card #, jersey #, serial #, grades) are never prices.
+    const pm = l.match(/(?:US\s*)?\$\s*([0-9,]+(?:\.\d{1,2})?)/i)
+            || l.match(/(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)\s+([0-9][0-9,]*(?:\.\d{2})?)/i);
     if (!pm) continue;
     const price = parseFloat((pm[1] || "").replace(/,/g, ""));
     if (!(price > 0.5 && price < 500_000)) continue;
@@ -182,8 +183,11 @@ async function importBulkComps() {
   if (detRow) detRow.style.display = anyFound ? "" : "none";
 
   if (!anyFound) {
-    if (summaryEl) { summaryEl.textContent = "No comps detected. Check format — include price ($) and grade (PSA 9, PSA 10, Raw)."; summaryEl.style.display = ""; }
-    showToast("No comps detected — check format", "error");
+    if (summaryEl) {
+      summaryEl.textContent = "No valid sold prices detected. Prices must include a $ sign — e.g. \"PSA 9 $430\" or \"Sold $1,245\".";
+      summaryEl.style.display = "";
+    }
+    showToast("No valid sold prices — include $ sign with prices", "error");
     return;
   }
 

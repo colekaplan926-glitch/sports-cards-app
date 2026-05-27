@@ -516,12 +516,17 @@ def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
         if not is_auto_card and re.search(r'\b(auto|autograph|signed)\b', ll):
             continue
 
-        # Extract price — prefer $xxx; fall back to bare number at line end
-        m = re.search(r'\$\s*([0-9,]+(?:\.\d{1,2})?)', line)
+        # Extract price — $ sign required, OR explicit sale language before a bare number.
+        # Bare numbers (years, card #s, jersey #s, serial #s) are never treated as prices.
+        m = re.search(r'(?:US\s*)?\$\s*([0-9,]+(?:\.\d{1,2})?)', line, re.I)
         if m:
             price_str = m.group(1).replace(",", "")
         else:
-            m2 = re.search(r'(?:^|[\t\s])([0-9,]+(?:\.\d{2})?)\s*$', line)
+            m2 = re.search(
+                r'(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)'
+                r'\s+([0-9][0-9,]*(?:\.\d{2})?)\b',
+                line, re.I,
+            )
             if not m2:
                 continue
             price_str = m2.group(1).replace(",", "")
