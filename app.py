@@ -4,6 +4,8 @@ import os
 import sqlite3
 import statistics as _stats
 import threading as _threading
+import re
+import time as _time
 import urllib.parse as _urllib_parse
 from flask import Flask, request, jsonify, render_template, g
 from calculations import calculate_profits
@@ -13,6 +15,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# ── Bookmarklet / comp-collector shared state ─────────────────────────────────
+_comp_store: dict = {}          # grade → {prices_csv, count, median, source, ts}
+_comp_lock  = _threading.Lock()
+_card_ctx:  dict = {}           # current card context (set by openSoldSearch)
+_ctx_lock   = _threading.Lock()
 
 _data_dir = ".data" if os.path.isdir(".data") else "."
 DATABASE  = os.path.join(_data_dir, "sports_cards.db")
@@ -158,6 +166,103 @@ def init_db():
         db.commit()
 
 
+# ── Comp filtering ───────────────────────────────────────────────────────────
+
+_EXCLUDE_KW = [
+    "lot of", " lot ", " lot,", "lots of", "reprint", "custom card",
+    "fake ", " fake,", "proxy", "redemption", "commemorative", "buyback",
+    "artist proof", "blank back", "sample ",
+]
+_GRADER_PAT   = re.compile(r'\b(bgs|sgc|cgc|beckett|hga|gma)\b', re.I)
+_PSA_PAT      = re.compile(r'\bpsa\b', re.I)
+_NUMBERED_PAT = re.compile(r'/\s*\d{1,4}\b')
+_AUTO_PAT     = re.compile(r'\b(auto|autograph|autographed|signed)\b', re.I)
+
+
+def _should_keep(comp: dict, grade: str, ctx: dict) -> tuple:
+    """Return (keep: bool, reason: str) for a single comp dict."""
+    title = (comp.get("title") or "").lower().strip()
+    price = float(comp.get("price") or 0)
+    if price <= 0 or price >= 500_000:
+        return False, "invalid price"
+    for kw in _EXCLUDE_KW:
+        if kw in title:
+            return False, f"excluded: {kw.strip()!r}"
+    variation        = (ctx.get("variation") or "").lower()
+    is_auto_card     = "auto" in variation
+    is_numbered_card = "numbered" in variation
+    if grade == "raw":
+        if _PSA_PAT.search(title) or _GRADER_PAT.search(title):
+            return False, "graded card (collecting raw)"
+    else:
+        if _GRADER_PAT.search(title) and not _PSA_PAT.search(title):
+            return False, "different grader"
+        grade_num = {"psa8": "8", "psa9": "9", "psa10": "10"}.get(grade, "")
+        if grade_num:
+            other = re.search(r'\bpsa\s*(\d+)\b', title, re.I)
+            if other and other.group(1) != grade_num:
+                return False, f"wrong PSA grade (title says PSA {other.group(1)})"
+    if not is_auto_card and _AUTO_PAT.search(title):
+        return False, "auto (card is not an auto)"
+    if not is_numbered_card and _NUMBERED_PAT.search(title):
+        return False, "numbered parallel"
+    card_number = (ctx.get("card_number") or "").strip()
+    if card_number:
+        nums_in_title = re.findall(r'(?<![/\d])#(\d+)\b', title)
+        if nums_in_title and card_number not in nums_in_title:
+            return False, f"wrong card number (#{', #'.join(nums_in_title)})"
+    return True, ""
+
+
+# ── Bookmarklet JS ────────────────────────────────────────────────────────────
+
+_BOOKMARKLET_BODY = r"""
+var h=location.hostname,isE=h.includes('ebay.com'),is1=h.includes('130point.com');
+if(!isE&&!is1){alert('CardGrade Pro: Open this on an eBay Sold Listings or 130point.com page.');return;}
+var u=decodeURIComponent(location.href).toLowerCase();
+var g='raw';
+if(/psa[\s+]*(?:gem[\s+]*mint[\s+]*)?10/.test(u))g='psa10';
+else if(/psa[\s+]*9(?!\d)/.test(u))g='psa9';
+else if(/psa[\s+]*8(?!\d)/.test(u))g='psa8';
+var gl={raw:'Raw',psa8:'PSA 8',psa9:'PSA 9',psa10:'PSA 10'}[g];
+var cs=[];
+if(isE){document.querySelectorAll('li.s-item').forEach(function(el){
+  var t=el.querySelector('.s-item__title')||el.querySelector('span[role="heading"]');
+  var p=el.querySelector('.s-item__price');
+  var a=el.querySelector('a.s-item__link');
+  var d=el.querySelector('.s-item__caption--end')||el.querySelector('span.POSITIVE');
+  if(!t||!p)return;
+  var title=(t.textContent||'').trim();
+  if(!title||/shop on ebay/i.test(title))return;
+  var price=parseFloat((p.textContent||'').replace(/[^0-9.]/g,''));
+  if(!(price>0.5&&price<500000))return;
+  cs.push({title:title,price:price,url:a?a.href.split('?')[0]:'',date:d?(d.textContent||'').trim():''});
+});}else{document.querySelectorAll('table tbody tr').forEach(function(r){
+  var c=r.querySelectorAll('td');if(c.length<3)return;
+  var a=c[1]&&c[1].querySelector('a');
+  var title=a?(a.textContent||'').trim():(c[1]?(c[1].textContent||'').trim():'');
+  var price=parseFloat((c[c.length-1].textContent||'').replace(/[^0-9.]/g,''));
+  if(!(price>0.5&&price<500000))return;
+  cs.push({title:title,price:price,url:a?a.href:'',date:(c[0].textContent||'').trim()});
+});}
+if(!cs.length){alert('No sold listings found on this page.\n\nMake sure you are on a Sold/Completed listings page.');return;}
+if(!confirm('Send '+cs.length+' '+gl+' sold prices to CardGrade Pro?'))return;
+var xhr=new XMLHttpRequest();
+xhr.open('POST',APP+'/api/import-comps',true);
+xhr.setRequestHeader('Content-Type','application/json');
+xhr.onreadystatechange=function(){if(xhr.readyState===4){if(xhr.status===200){
+  var r=JSON.parse(xhr.responseText);
+  alert('✓ '+r.imported+' '+gl+' comp'+(r.imported===1?'':'s')+' sent!\n('+r.filtered+' filtered)\nMedian: $'+r.median+'\n\nSwitch back to CardGrade Pro and click Calculate.');
+}else{alert('Error: '+(xhr.responseText||'could not send comps'));}}};
+xhr.onerror=function(){alert('Could not connect to CardGrade Pro.\nMake sure the app is open in another tab.');};
+xhr.send(JSON.stringify({grade:g,comps:cs,source:isE?'ebay':'130point',page_url:location.href}));
+""".replace("\n", "")
+
+
+def _build_bookmarklet_js(app_url: str) -> str:
+    return "javascript:(function(){var APP='" + app_url + "';" + _BOOKMARKLET_BODY + "})();"
+
+
 # ── Search URL builder (shared by auto-comps endpoint) ───────────────────────
 
 def _search_urls_for_card(player, year, set_name, card_number, variation):
@@ -265,6 +370,215 @@ def auto_comps():
         "message":     ("Comps found! Click Calculate." if any_found
                         else "Could not auto-fetch comps. Use the search links."),
     })
+
+
+# ── Bookmarklet page ─────────────────────────────────────────────────────────
+
+@app.route("/bookmarklet")
+def bookmarklet_page():
+    app_url = request.url_root.rstrip("/")
+    return render_template("bookmarklet.html", app_url=app_url,
+                           bookmarklet_js=_build_bookmarklet_js(app_url))
+
+
+# ── Card context (set when user opens a sold search) ─────────────────────────
+
+@app.route("/api/set-card-context", methods=["POST"])
+def set_card_context():
+    data  = request.get_json() or {}
+    grade = (data.get("grade") or "").strip()
+    with _ctx_lock:
+        _card_ctx.clear()
+        _card_ctx.update({k: (data.get(k) or "").strip()
+                          for k in ("player_name", "year", "set_name",
+                                    "card_number", "variation", "grade")})
+    if grade:
+        with _comp_lock:
+            _comp_store.pop(grade, None)   # clear stale comps for this grade
+    return jsonify({"ok": True})
+
+
+# ── Bookmarklet comp import (called cross-origin from eBay / 130point) ────────
+
+@app.route("/api/import-comps", methods=["POST", "OPTIONS"])
+def import_comps():
+    if request.method == "OPTIONS":
+        resp = jsonify({})
+        resp.headers["Access-Control-Allow-Origin"]  = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return resp
+
+    data   = request.get_json() or {}
+    grade  = data.get("grade", "raw")
+    comps  = data.get("comps", [])
+    source = data.get("source", "unknown")
+
+    if grade not in ("raw", "psa8", "psa9", "psa10"):
+        resp = jsonify({"error": "Invalid grade"})
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp, 400
+
+    with _ctx_lock:
+        ctx = dict(_card_ctx)
+
+    kept, filtered_out = [], 0
+    for comp in comps:
+        keep, _ = _should_keep(comp, grade, ctx)
+        if keep:
+            kept.append(comp)
+        else:
+            filtered_out += 1
+
+    prices = sorted(c["price"] for c in kept)
+    if len(prices) >= 4:
+        n = len(prices)
+        q1, q3 = prices[n // 4], prices[(3 * n) // 4]
+        iqr = q3 - q1
+        if iqr > 0:
+            clean = [p for p in prices if (q1 - 1.5 * iqr) <= p <= (q3 + 1.5 * iqr)]
+            if clean:
+                prices = clean
+
+    grade_labels = {"raw": "Raw", "psa8": "PSA 8", "psa9": "PSA 9", "psa10": "PSA 10"}
+    n = len(prices)
+    if n == 0:
+        resp = jsonify({"imported": 0, "filtered": filtered_out, "grade": grade,
+                        "grade_label": grade_labels[grade], "median": 0,
+                        "prices_csv": "", "count": 0,
+                        "message": "All comps were filtered out."})
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
+
+    median = _stats.median(prices)
+    csv_s  = ", ".join(str(int(p)) if p == int(p) else f"{p:.2f}" for p in sorted(prices))
+    with _comp_lock:
+        _comp_store[grade] = {"prices_csv": csv_s, "count": n,
+                              "median": round(median, 2), "source": source,
+                              "ts": _time.time()}
+
+    resp = jsonify({"imported": n, "filtered": filtered_out, "grade": grade,
+                    "grade_label": grade_labels[grade], "median": round(median, 2),
+                    "prices_csv": csv_s, "count": n,
+                    "message": f"{n} {grade_labels[grade]} comps imported."})
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+
+# ── Polling — frontend checks this every 2 s after opening a sold search ─────
+
+@app.route("/api/comp-poll", methods=["GET"])
+def comp_poll():
+    with _comp_lock:
+        result = {
+            grade: {"count": d["count"], "median": d["median"],
+                    "prices_csv": d["prices_csv"], "source": d["source"], "ts": d["ts"]}
+            for grade, d in _comp_store.items()
+        }
+    return jsonify(result)
+
+
+@app.route("/api/reset-comps", methods=["POST"])
+def reset_comps():
+    with _comp_lock:
+        _comp_store.clear()
+    return jsonify({"ok": True})
+
+
+# ── Bulk text parser — Quick Import ──────────────────────────────────────────
+
+_PSA10_PAT = re.compile(r'\bpsa\s*(?:gem\s*mint\s*)?10\b', re.I)
+_PSA9_PAT  = re.compile(r'\bpsa\s*9(?!\d)',                re.I)
+_PSA8_PAT  = re.compile(r'\bpsa\s*8(?!\d)',                re.I)
+_OTHER_GRADER = re.compile(r'\b(bgs|sgc|cgc|beckett|hga|gma)\b', re.I)
+_OTHER_PSA    = re.compile(r'\bpsa\s*\d+',                 re.I)
+_BULK_EXCLUDE = ["lot of", " lot ", "lots of", "reprint", "custom card",
+                 "fake ", "proxy", "redemption", "blank back", "commemorative"]
+
+
+def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
+    """Parse a block of pasted sold-listing text → {grade: [prices]}."""
+    ctx = ctx or {}
+    variation        = (ctx.get("variation") or "").lower()
+    is_auto_card     = "auto" in variation
+    result           = {g: [] for g in ("raw", "psa8", "psa9", "psa10")}
+    lines            = text.splitlines()
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        ll = line.lower()
+
+        # Skip known-bad listings
+        if any(kw in ll for kw in _BULK_EXCLUDE):
+            continue
+        if not is_auto_card and re.search(r'\b(auto|autograph|signed)\b', ll):
+            continue
+
+        # Extract price — prefer $xxx; fall back to bare number at line end
+        m = re.search(r'\$\s*([0-9,]+(?:\.\d{1,2})?)', line)
+        if m:
+            price_str = m.group(1).replace(",", "")
+        else:
+            m2 = re.search(r'(?:^|[\t\s])([0-9,]+(?:\.\d{2})?)\s*$', line)
+            if not m2:
+                continue
+            price_str = m2.group(1).replace(",", "")
+        try:
+            price = float(price_str)
+        except (ValueError, AttributeError):
+            continue
+        if not (0.5 < price < 500_000):
+            continue
+
+        # Detect grade
+        if _OTHER_GRADER.search(ll):
+            continue                          # non-PSA graders → skip
+        if _PSA10_PAT.search(ll):
+            grade = "psa10"
+        elif _PSA9_PAT.search(ll):
+            grade = "psa9"
+        elif _PSA8_PAT.search(ll):
+            grade = "psa8"
+        elif _OTHER_PSA.search(ll):
+            continue                          # PSA 7 / PSA 6 etc → skip
+        else:
+            grade = "raw"                     # no grader mention → raw
+
+        result[grade].append(price)
+
+    return result
+
+
+@app.route("/api/parse-bulk-comps", methods=["POST"])
+def parse_bulk_comps():
+    data = request.get_json() or {}
+    text = data.get("text", "")
+    if not text.strip():
+        return jsonify({"error": "No text provided"}), 400
+    with _ctx_lock:
+        ctx = dict(_card_ctx)
+    parsed  = _parse_bulk_text(text, ctx)
+    summary = {}
+    for grade, prices in parsed.items():
+        if not prices:
+            summary[grade] = {"count": 0, "median": 0, "prices_csv": ""}
+            continue
+        # IQR outlier removal
+        sp = sorted(prices)
+        n  = len(sp)
+        if n >= 4:
+            q1, q3 = sp[n // 4], sp[(3 * n) // 4]
+            iqr    = q3 - q1
+            if iqr > 0:
+                clean = [p for p in sp if (q1 - 1.5 * iqr) <= p <= (q3 + 1.5 * iqr)]
+                if clean:
+                    sp = clean
+        med    = _stats.median(sp)
+        csv_s  = ", ".join(str(int(p)) if p == int(p) else f"{p:.2f}" for p in sp)
+        summary[grade] = {"count": len(sp), "median": round(med, 2), "prices_csv": csv_s}
+    return jsonify(summary)
 
 
 # ── Comp parser ──────────────────────────────────────────────────────────────

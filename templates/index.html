@@ -23,7 +23,7 @@
   <!-- ════════════════ CALCULATOR PAGE ════════════════ -->
   <div class="page active" id="page-calculator">
     <div class="page-intro">
-      <p>Enter your card details and costs, then click <strong>Auto Find Comps</strong> — or use the search links to look up sold prices yourself.</p>
+      <p>Enter card details and costs → paste sold listings → get instant ROI analysis.</p>
     </div>
 
     <form id="calc-form" onsubmit="return false;">
@@ -116,85 +116,105 @@
           <div class="panel">
             <div class="panel-title"><span class="icon icon-yellow">🔍</span> Find Comps</div>
 
-            <button class="btn btn-primary" id="auto-find-btn" style="width:100%;margin-bottom:.875rem" onclick="autoFindComps()">
-              🔍 Auto Find Comps
-            </button>
+            <!-- ── Quick Import (PRIMARY) ── -->
+            <p class="section-note" style="margin-bottom:.5rem">
+              Copy sold listings from eBay or 130point and paste below — all grades at once:
+            </p>
+            <textarea id="bulk-paste-area" class="bulk-textarea"
+              placeholder="Paste sold listings here, one per line. Examples:&#10;2017 Mahomes Donruss #327 PSA 10  $1,245&#10;2017 Mahomes Donruss #327 PSA 9   $430&#10;2017 Mahomes Donruss #327 Raw      $88&#10;&#10;Works with eBay text, 130point tables, or any format with price + grade."></textarea>
 
-            <!-- Auto-find status -->
-            <div id="auto-find-status" style="display:none;margin-bottom:.875rem"></div>
+            <div id="bulk-parse-summary" class="parse-summary" style="display:none"></div>
 
-            <!-- Per-grade search links (always visible, auto-updated) -->
-            <p class="section-note" style="margin-bottom:.5rem">Search manually by grade:</p>
-            <div class="comp-links-grid">
+            <div class="quick-import-btns">
+              <button class="btn btn-primary" style="flex:1" onclick="importBulkComps()">⚡ Parse &amp; Calculate</button>
+              <button class="btn btn-outline" onclick="importFromClipboard()" title="Paste directly from clipboard">📋 From Clipboard</button>
+              <button class="btn btn-ghost btn-sm" onclick="clearBulkImport()" title="Clear">✕</button>
+            </div>
 
-              <div class="comp-link-row">
-                <span class="comp-link-grade">Raw</span>
-                <span id="status-raw"   class="comp-status-badge" style="display:none"></span>
-                <div class="comp-link-btns">
-                  <a id="link-raw-ebay"    class="search-link-btn sm" href="https://www.ebay.com/sch/i.html?_nkw=sports+card&LH_Sold=1&LH_Complete=1&_sop=13"           target="_blank" rel="noopener">eBay ↗</a>
-                  <a id="link-raw-130"     class="search-link-btn sm" href="https://www.130point.com/"                                                                    target="_blank" rel="noopener">130pt ↗</a>
-                  <a id="link-raw-google"  class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+raw+sold"                                         target="_blank" rel="noopener">Google ↗</a>
-                </div>
-              </div>
+            <!-- Per-grade detection badges -->
+            <div class="comp-detection-row" id="comp-detection-row" style="display:none">
+              <span class="detection-label">Detected:</span>
+              <span id="status-raw"   class="comp-status-badge" style="display:none"></span>
+              <span id="status-psa8"  class="comp-status-badge" style="display:none"></span>
+              <span id="status-psa9"  class="comp-status-badge" style="display:none"></span>
+              <span id="status-psa10" class="comp-status-badge" style="display:none"></span>
+            </div>
 
-              <div class="comp-link-row">
-                <span class="comp-link-grade">PSA 8</span>
-                <span id="status-psa8"  class="comp-status-badge" style="display:none"></span>
-                <div class="comp-link-btns">
-                  <a id="link-psa8-ebay"   class="search-link-btn sm" href="https://www.ebay.com/sch/i.html?_nkw=sports+card+PSA+8&LH_Sold=1&LH_Complete=1&_sop=13"      target="_blank" rel="noopener">eBay ↗</a>
-                  <a id="link-psa8-130"    class="search-link-btn sm" href="https://www.130point.com/"                                                                    target="_blank" rel="noopener">130pt ↗</a>
-                  <a id="link-psa8-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+PSA+8+sold"                                       target="_blank" rel="noopener">Google ↗</a>
-                </div>
-              </div>
-
-              <div class="comp-link-row">
-                <span class="comp-link-grade">PSA 9</span>
-                <span id="status-psa9"  class="comp-status-badge" style="display:none"></span>
-                <div class="comp-link-btns">
-                  <a id="link-psa9-ebay"   class="search-link-btn sm" href="https://www.ebay.com/sch/i.html?_nkw=sports+card+PSA+9&LH_Sold=1&LH_Complete=1&_sop=13"      target="_blank" rel="noopener">eBay ↗</a>
-                  <a id="link-psa9-130"    class="search-link-btn sm" href="https://www.130point.com/"                                                                    target="_blank" rel="noopener">130pt ↗</a>
-                  <a id="link-psa9-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+PSA+9+sold"                                       target="_blank" rel="noopener">Google ↗</a>
-                </div>
-              </div>
-
-              <div class="comp-link-row">
-                <span class="comp-link-grade">PSA 10</span>
-                <span id="status-psa10" class="comp-status-badge" style="display:none"></span>
-                <div class="comp-link-btns">
-                  <a id="link-psa10-ebay"   class="search-link-btn sm" href="https://www.ebay.com/sch/i.html?_nkw=sports+card+PSA+10&LH_Sold=1&LH_Complete=1&_sop=13"    target="_blank" rel="noopener">eBay ↗</a>
-                  <a id="link-psa10-130"    class="search-link-btn sm" href="https://www.130point.com/"                                                                   target="_blank" rel="noopener">130pt ↗</a>
-                  <a id="link-psa10-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+PSA+10+sold"                                     target="_blank" rel="noopener">Google ↗</a>
-                </div>
-              </div>
-
-            </div><!-- /comp-links-grid -->
-
-            <!-- Advanced / Backup — collapsed by default -->
+            <!-- ── Advanced: Search links + bookmarklet + manual boxes ── -->
             <div class="expand-section" style="margin-top:1rem">
               <button class="expand-trigger" id="advanced-trigger" onclick="toggleSection(this)">
-                <span>Paste comps manually (backup)</span>
+                <span>Advanced search tools</span>
                 <span class="expand-arrow">▾</span>
               </button>
               <div class="expand-body" style="display:none">
-                <p class="fs-sm text-muted" style="margin-bottom:.875rem">Paste sold prices as comma-separated numbers, e.g. <code>1200, 1250, 1300</code></p>
-                <div class="form-group">
-                  <label for="comps_raw">Raw Sold Prices</label>
-                  <input type="text" id="comps_raw" placeholder="e.g. 85, 90, 88" autocomplete="off" />
+
+                <p class="fs-sm text-muted" style="margin-bottom:.5rem">Open sold listings by grade (auto-updated from card details):</p>
+                <div class="comp-links-grid">
+
+                  <div class="comp-link-row">
+                    <span class="comp-link-grade">Raw</span>
+                    <div class="comp-link-btns">
+                      <button id="link-raw-ebay" class="search-link-btn sm" onclick="openSoldSearch('raw')">Open eBay ↗</button>
+                      <a id="link-raw-130"    class="search-link-btn sm" href="https://www.130point.com/"                                       target="_blank" rel="noopener">130pt ↗</a>
+                      <a id="link-raw-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+raw+sold"             target="_blank" rel="noopener">Google ↗</a>
+                    </div>
+                  </div>
+
+                  <div class="comp-link-row">
+                    <span class="comp-link-grade">PSA 8</span>
+                    <div class="comp-link-btns">
+                      <button id="link-psa8-ebay" class="search-link-btn sm" onclick="openSoldSearch('psa8')">Open eBay ↗</button>
+                      <a id="link-psa8-130"    class="search-link-btn sm" href="https://www.130point.com/"                                       target="_blank" rel="noopener">130pt ↗</a>
+                      <a id="link-psa8-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+PSA+8+sold"          target="_blank" rel="noopener">Google ↗</a>
+                    </div>
+                  </div>
+
+                  <div class="comp-link-row">
+                    <span class="comp-link-grade">PSA 9</span>
+                    <div class="comp-link-btns">
+                      <button id="link-psa9-ebay" class="search-link-btn sm" onclick="openSoldSearch('psa9')">Open eBay ↗</button>
+                      <a id="link-psa9-130"    class="search-link-btn sm" href="https://www.130point.com/"                                       target="_blank" rel="noopener">130pt ↗</a>
+                      <a id="link-psa9-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+PSA+9+sold"          target="_blank" rel="noopener">Google ↗</a>
+                    </div>
+                  </div>
+
+                  <div class="comp-link-row">
+                    <span class="comp-link-grade">PSA 10</span>
+                    <div class="comp-link-btns">
+                      <button id="link-psa10-ebay" class="search-link-btn sm" onclick="openSoldSearch('psa10')">Open eBay ↗</button>
+                      <a id="link-psa10-130"    class="search-link-btn sm" href="https://www.130point.com/"                                      target="_blank" rel="noopener">130pt ↗</a>
+                      <a id="link-psa10-google" class="search-link-btn sm" href="https://www.google.com/search?q=sports+card+PSA+10+sold"         target="_blank" rel="noopener">Google ↗</a>
+                    </div>
+                  </div>
+
+                </div><!-- /comp-links-grid -->
+
+                <a href="/bookmarklet" class="bm-hint-link" target="_blank" rel="noopener">
+                  📎 Get Comp Collector bookmarklet — click on eBay to auto-send prices (no copy/paste)
+                </a>
+
+                <div style="margin-top:1rem">
+                  <p class="fs-sm text-muted" style="margin-bottom:.75rem">Or enter prices per grade manually (comma-separated):</p>
+                  <div class="form-group">
+                    <label for="comps_raw">Raw Sold Prices</label>
+                    <input type="text" id="comps_raw" placeholder="e.g. 85, 90, 88" autocomplete="off" />
+                  </div>
+                  <div class="form-group">
+                    <label for="comps_psa8">PSA 8 Sold Prices</label>
+                    <input type="text" id="comps_psa8" placeholder="e.g. 150, 160, 145" autocomplete="off" />
+                  </div>
+                  <div class="form-group">
+                    <label for="comps_psa9">PSA 9 Sold Prices</label>
+                    <input type="text" id="comps_psa9" placeholder="e.g. 400, 420, 390" autocomplete="off" />
+                  </div>
+                  <div class="form-group" style="margin-bottom:0">
+                    <label for="comps_psa10">PSA 10 Sold Prices</label>
+                    <input type="text" id="comps_psa10" placeholder="e.g. 1200, 1250, 1300" autocomplete="off" />
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="comps_psa8">PSA 8 Sold Prices</label>
-                  <input type="text" id="comps_psa8" placeholder="e.g. 150, 160, 145" autocomplete="off" />
-                </div>
-                <div class="form-group">
-                  <label for="comps_psa9">PSA 9 Sold Prices</label>
-                  <input type="text" id="comps_psa9" placeholder="e.g. 400, 420, 390" autocomplete="off" />
-                </div>
-                <div class="form-group" style="margin-bottom:0">
-                  <label for="comps_psa10">PSA 10 Sold Prices</label>
-                  <input type="text" id="comps_psa10" placeholder="e.g. 1200, 1250, 1300" autocomplete="off" />
-                </div>
-              </div>
-            </div>
+
+              </div><!-- /expand-body -->
+            </div><!-- /expand-section -->
 
           </div><!-- /Find Comps panel -->
 
@@ -211,8 +231,8 @@
 
           <div class="results-placeholder" id="results-placeholder">
             <div class="placeholder-icon">🔍</div>
-            <p>Enter card details, find comps, then click <strong>Calculate</strong>.</p>
-            <p class="text-muted fs-sm" style="margin-top:.5rem">Results are based only on verified sold prices — no estimates, no fake data.</p>
+            <p>Enter card details, paste sold listings, then click <strong>⚡ Parse &amp; Calculate</strong>.</p>
+            <p class="text-muted fs-sm" style="margin-top:.5rem">Analysis is based only on verified sold prices — no estimates, no fake data.</p>
           </div>
 
           <div id="results-loading" style="display:none; flex-direction:column; gap:1.5rem; align-items:center; justify-content:center; min-height:400px; border:2px dashed var(--border); border-radius:var(--radius);">

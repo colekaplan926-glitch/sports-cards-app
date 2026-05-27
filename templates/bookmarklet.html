@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comp Collector – CardGrade Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<header class="app-header">
+  <div class="logo"><div class="logo-icon">🃏</div>CardGrade Pro</div>
+  <a href="/" class="btn btn-outline btn-sm">← Back to Calculator</a>
+</header>
+
+<main class="main-content" style="max-width:720px">
+  <div class="page active">
+    <div class="panel">
+      <div class="panel-title"><span class="icon icon-yellow">📎</span> Comp Collector Bookmarklet</div>
+      <p class="text-muted" style="margin-bottom:1.5rem">
+        Install once — click it on any eBay Sold or 130point page to auto-send prices to CardGrade Pro.
+        No copy/paste required.
+      </p>
+
+      <div class="bm-step">
+        <div class="bm-step-num">1</div>
+        <div>
+          <div class="bm-step-title">Drag this button to your Bookmarks Bar</div>
+          <div class="bm-step-sub" style="margin-bottom:.75rem">
+            Show bookmarks bar: Chrome <kbd>Ctrl+Shift+B</kbd> / Mac <kbd>⌘+Shift+B</kbd>
+          </div>
+          <a id="bm-link" class="bookmarklet-drag-btn" href="#">📎 Comp Collector</a>
+          <div class="bm-step-sub" style="margin-top:.5rem">
+            Drag the button above onto your bookmarks bar.
+          </div>
+        </div>
+      </div>
+
+      <div class="bm-step">
+        <div class="bm-step-num">2</div>
+        <div>
+          <div class="bm-step-title">Open a Sold Search from CardGrade Pro</div>
+          <div class="bm-step-sub">
+            Enter your card details, then click <strong>Open eBay ↗</strong> for any grade under
+            <em>Advanced search tools</em>.
+          </div>
+        </div>
+      </div>
+
+      <div class="bm-step">
+        <div class="bm-step-num">3</div>
+        <div>
+          <div class="bm-step-title">Click "Comp Collector" on the eBay / 130point page</div>
+          <div class="bm-step-sub">
+            Scans sold listings, filters out lots / reprints / wrong grades, and sends prices back automatically.
+          </div>
+        </div>
+      </div>
+
+      <div class="bm-step">
+        <div class="bm-step-num">4</div>
+        <div>
+          <div class="bm-step-title">Switch back and click Calculate</div>
+          <div class="bm-step-sub">
+            Comps are auto-filled. Click <strong>⚡ Calculate</strong> to see ROI and recommendation.
+          </div>
+        </div>
+      </div>
+
+      <div class="divider" style="margin:1.5rem 0"></div>
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
+          Your App URL (baked into the bookmarklet)
+        </div>
+        <code style="font-size:13px;color:var(--accent)">{{ app_url }}</code>
+      </div>
+
+      <p class="text-muted fs-sm" style="margin-top:1rem">
+        Alternatively, use <strong>Quick Import</strong> on the main calculator page — copy sold listings
+        from eBay, paste once, and get instant analysis.
+      </p>
+    </div>
+  </div>
+</main>
+
+<script>
+(function() {
+  var bm = {{ bookmarklet_js|tojson }};
+  document.getElementById('bm-link').href = bm;
+})();
+</script>
+</body>
+</html>

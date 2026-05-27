@@ -1,6 +1,8 @@
 // ── State ──────────────────────────────────────────────
 let calcResults = null;
 let calcData    = null;
+let _pollTimer  = null;
+let _knownCompTs = {};
 
 // ── Tabs ───────────────────────────────────────────────
 function showPage(name) {
@@ -71,107 +73,211 @@ function updateCompLinks() {
   };
 
   for (const [g, q] of Object.entries(gradeQ)) {
-    const set = (id, href) => { const el = document.getElementById(id); if (el) el.href = href; };
-    set(`link-${g}-ebay`,
-        "https://www.ebay.com/sch/i.html?" +
-        new URLSearchParams({_nkw: q, LH_Sold: "1", LH_Complete: "1", _sop: "13"}));
-    set(`link-${g}-130`,
+    const setA = (id, href) => { const el = document.getElementById(id); if (el && el.tagName === "A") el.href = href; };
+    setA(`link-${g}-130`,
         "https://www.130point.com/sales/?" + new URLSearchParams({q}));
-    set(`link-${g}-google`,
+    setA(`link-${g}-google`,
         "https://www.google.com/search?" + new URLSearchParams({q: q + " sold"}));
   }
 }
 
-// ── Auto Find Comps ────────────────────────────────────
-async function autoFindComps() {
-  const data = getCardData();
-  if (!data.player_name && !data.set_name) {
-    showToast("Enter card details first", "error"); return;
+// ── Quick Import helpers ───────────────────────────────
+const _BULK_EXCLUDE = ["lot of"," lot ","lots of","reprint","custom card",
+                        "fake ","proxy","redemption","blank back","commemorative"];
+
+function _parseBulkText(text) {
+  const variation  = (document.getElementById("variation")?.value || "").toLowerCase();
+  const isAutoCard = variation.includes("auto");
+  const result     = { raw: [], psa8: [], psa9: [], psa10: [] };
+
+  for (const line of text.split(/\r?\n/)) {
+    const l  = line.trim();
+    if (!l) continue;
+    const ll = l.toLowerCase();
+
+    if (_BULK_EXCLUDE.some(kw => ll.includes(kw))) continue;
+    if (!isAutoCard && /\b(auto|autograph|signed)\b/.test(ll)) continue;
+
+    // Extract price: $1,245 or $1245 or bare number at end
+    const pm = l.match(/\$\s*([0-9,]+(?:\.\d{1,2})?)/i)
+            || l.match(/(?:^|[\s\t:,])([0-9][0-9,]*(?:\.\d{2})?)(?:\s*(?:usd)?)\s*$/i);
+    if (!pm) continue;
+    const price = parseFloat((pm[1] || "").replace(/,/g, ""));
+    if (!(price > 0.5 && price < 500_000)) continue;
+
+    // Skip other graders
+    if (/\b(bgs|sgc|cgc|beckett|hga|gma)\b/.test(ll)) continue;
+
+    let grade;
+    if (/psa\s*(?:gem\s*mint\s*)?10\b/.test(ll))   grade = "psa10";
+    else if (/psa\s*9(?!\d)/.test(ll))              grade = "psa9";
+    else if (/psa\s*8(?!\d)/.test(ll))              grade = "psa8";
+    else if (/\bpsa\s*\d+/.test(ll))                continue; // PSA 7 / 6 etc.
+    else                                             grade = "raw";
+
+    result[grade].push(price);
   }
+  return result;
+}
 
-  const btn     = document.getElementById("auto-find-btn");
-  const statusEl = document.getElementById("auto-find-status");
+function _applyIQR(prices) {
+  if (prices.length < 4) return prices;
+  const s = [...prices].sort((a, b) => a - b);
+  const n = s.length;
+  const q1 = s[Math.floor(n / 4)], q3 = s[Math.floor(3 * n / 4)];
+  const iqr = q3 - q1;
+  if (iqr <= 0) return prices;
+  return prices.filter(p => p >= q1 - 1.5 * iqr && p <= q3 + 1.5 * iqr);
+}
 
-  btn.disabled  = true;
-  btn.innerHTML = '<span class="spinner"></span> Searching…';
-  statusEl.style.display = "block";
-  statusEl.innerHTML = `<div class="auto-find-msg loading">
-    Searching eBay sold listings — this may take up to 25 seconds…</div>`;
+function _median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
 
-  // Clear previous per-grade status badges
-  for (const g of ["raw","psa8","psa9","psa10"]) {
-    const el = document.getElementById(`status-${g}`);
-    if (el) { el.style.display = "none"; el.textContent = ""; el.className = "comp-status-badge"; }
-  }
-
-  try {
-    const res    = await fetch("/api/auto-comps", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(data),
-    });
-    const result = await res.json();
-
-    if (result.error) { showToast(result.error, "error"); return; }
-
-    // Update search links from server-built URLs (exact card queries)
-    if (result.search_urls) {
-      for (const [g, urls] of Object.entries(result.search_urls)) {
-        const set = (id, href) => { const el = document.getElementById(id); if (el) el.href = href; };
-        set(`link-${g}-ebay`,   urls.ebay);
-        set(`link-${g}-130`,    urls.p130);
-        set(`link-${g}-google`, urls.google);
-      }
-    }
-
-    // Populate manual inputs + show per-grade status
-    let anyFound = false;
-    for (const g of ["raw","psa8","psa9","psa10"]) {
-      const gd  = result.grades?.[g] || {};
-      const inp = document.getElementById(`comps_${g}`);
-      const badge = document.getElementById(`status-${g}`);
-
-      if (gd.found && gd.prices_csv) {
-        if (inp) inp.value = gd.prices_csv;
-        if (badge) {
-          badge.textContent = `✓ ${gd.count} comp${gd.count !== 1 ? "s" : ""} · ${fmt$(gd.median)}`;
-          badge.className   = "comp-status-badge found";
-          badge.style.display = "";
-        }
-        anyFound = true;
-      } else if (result.grades) {
-        if (badge) {
-          badge.textContent = "○ Not found";
-          badge.className   = "comp-status-badge failed";
-          badge.style.display = "";
-        }
-      }
-    }
-
-    // Summary banner
-    if (anyFound) {
-      statusEl.innerHTML = `<div class="auto-find-msg success">
-        ✓ Comps found — click <strong>Calculate</strong>.</div>`;
-      showToast("Comps loaded! Click Calculate.", "success");
-    } else {
-      statusEl.innerHTML = `<div class="auto-find-msg failed">
-        Could not auto-fetch comps. Use the search links, then paste prices in
-        <strong>Paste comps manually</strong> below.</div>`;
-      // Auto-expand backup section
-      const trig = document.getElementById("advanced-trigger");
-      if (trig) {
-        const body = trig.nextElementSibling;
-        if (body && body.style.display === "none") toggleSection(trig);
-      }
-    }
-
-  } catch {
-    statusEl.innerHTML = `<div class="auto-find-msg failed">
-      Auto-find failed. Use the search links below.</div>`;
-  } finally {
-    btn.disabled  = false;
-    btn.innerHTML = "🔍 Auto Find Comps";
+function _setBadge(grade, count, median) {
+  const badge = document.getElementById("status-" + grade);
+  if (!badge) return;
+  if (count > 0) {
+    const labels = { raw: "Raw", psa8: "PSA 8", psa9: "PSA 9", psa10: "PSA 10" };
+    badge.textContent = `${labels[grade]}: ${count} comp${count !== 1 ? "s" : ""} · ${fmt$(median)}`;
+    badge.className   = "comp-status-badge found";
+    badge.style.display = "";
+  } else {
+    badge.style.display = "none";
+    badge.textContent   = "";
   }
 }
+
+async function importBulkComps() {
+  const textarea = document.getElementById("bulk-paste-area");
+  const text     = (textarea?.value || "").trim();
+  if (!text) { showToast("Paste sold listings first", "error"); return; }
+
+  const parsed = _parseBulkText(text);
+  const detRow = document.getElementById("comp-detection-row");
+  const summaryEl = document.getElementById("bulk-parse-summary");
+  let anyFound = false;
+  const summaryParts = [];
+
+  for (const [grade, rawPrices] of Object.entries(parsed)) {
+    const prices = _applyIQR(rawPrices);
+    const inp    = document.getElementById("comps_" + grade);
+
+    if (prices.length > 0) {
+      const med = _median(prices);
+      const csv = prices.map(p => Number.isInteger(p) ? p : p.toFixed(2)).join(", ");
+      if (inp) inp.value = csv;
+      _setBadge(grade, prices.length, med);
+      summaryParts.push(`${prices.length} ${{ raw:"Raw",psa8:"PSA 8",psa9:"PSA 9",psa10:"PSA 10" }[grade]}`);
+      anyFound = true;
+    } else {
+      if (inp) inp.value = "";
+      _setBadge(grade, 0, 0);
+    }
+  }
+
+  if (detRow) detRow.style.display = anyFound ? "" : "none";
+
+  if (!anyFound) {
+    if (summaryEl) { summaryEl.textContent = "No comps detected. Check format — include price ($) and grade (PSA 9, PSA 10, Raw)."; summaryEl.style.display = ""; }
+    showToast("No comps detected — check format", "error");
+    return;
+  }
+
+  if (summaryEl) { summaryEl.textContent = "Detected: " + summaryParts.join("  ·  "); summaryEl.style.display = ""; }
+
+  const rawPrice = parseFloat(document.getElementById("raw_price")?.value || 0);
+  if (rawPrice > 0) {
+    await calculate();
+  } else {
+    showToast("Comps loaded! Enter a raw purchase price and click Parse & Calculate.", "success");
+  }
+}
+
+async function importFromClipboard() {
+  try {
+    const text     = await navigator.clipboard.readText();
+    const textarea = document.getElementById("bulk-paste-area");
+    if (textarea) textarea.value = text;
+    await importBulkComps();
+  } catch {
+    showToast("Clipboard access denied — paste manually into the box above", "error");
+  }
+}
+
+function clearBulkImport() {
+  const ta = document.getElementById("bulk-paste-area");
+  if (ta) ta.value = "";
+  const summaryEl = document.getElementById("bulk-parse-summary");
+  if (summaryEl) { summaryEl.style.display = "none"; summaryEl.textContent = ""; }
+  const detRow = document.getElementById("comp-detection-row");
+  if (detRow) detRow.style.display = "none";
+  for (const g of ["raw","psa8","psa9","psa10"]) {
+    _setBadge(g, 0, 0);
+    const inp = document.getElementById("comps_" + g);
+    if (inp) inp.value = "";
+  }
+}
+
+// ── Bookmarklet: open sold search + start polling ──────
+function getBaseQuery() {
+  const d = getCardData();
+  const { player_name: p, year: y, set_name: s, card_number: n, variation: v } = d;
+  return [y, p, s, (v && v !== "Base") ? v : "", n ? "#" + n : ""].filter(Boolean).join(" ");
+}
+
+async function openSoldSearch(grade) {
+  const data = getCardData();
+  if (!data.player_name && !data.set_name) { showToast("Enter card details first", "error"); return; }
+
+  fetch("/api/set-card-context", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...data, grade }),
+  }).catch(() => {});
+
+  const suffix = { raw: "", psa8: " PSA 8", psa9: " PSA 9", psa10: " PSA 10" }[grade] || "";
+  const q      = getBaseQuery() + suffix;
+  window.open("https://www.ebay.com/sch/i.html?" +
+    new URLSearchParams({ _nkw: q, LH_Sold: "1", LH_Complete: "1", _sop: "13" }), "_blank");
+
+  startCompPoll();
+  const labels = { raw: "Raw", psa8: "PSA 8", psa9: "PSA 9", psa10: "PSA 10" };
+  showToast(`Opened ${labels[grade]} search — click Comp Collector bookmarklet on that page`, "info");
+}
+
+function startCompPoll() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(async () => {
+    try {
+      const result = await (await fetch("/api/comp-poll")).json();
+      let anyNew = false;
+      for (const [grade, gdata] of Object.entries(result)) {
+        if (gdata.ts && gdata.ts !== _knownCompTs[grade]) {
+          _knownCompTs[grade] = gdata.ts;
+          const inp = document.getElementById("comps_" + grade);
+          if (inp) inp.value = gdata.prices_csv;
+          _setBadge(grade, gdata.count, gdata.median);
+          anyNew = true;
+        }
+      }
+      if (anyNew) {
+        const detRow = document.getElementById("comp-detection-row");
+        if (detRow) detRow.style.display = "";
+        showToast("Comps received! Click Parse & Calculate.", "success");
+        await calculate();
+      }
+    } catch { /* network hiccup — retry next tick */ }
+  }, 2000);
+}
+
+function stopCompPoll() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+window.addEventListener("beforeunload", stopCompPoll);
 
 // ── Calculate ──────────────────────────────────────────
 async function calculate() {
@@ -195,7 +301,7 @@ async function calculate() {
 
   try {
     const res    = await fetch("/api/calculate", {
-      method: "POST", headers: {"Content-Type":"application/json"},
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     const result = await res.json();
@@ -274,7 +380,7 @@ function renderSignalCard(r, data) {
     chips.push(`<span class="chip ${set_risk.color === "yellow" ? "chip-yellow" : ""}">${escHtml(set_risk.label)}</span>`);
   }
   if (!has_real_data) {
-    chips.push(`<span class="chip chip-yellow">⚠ No verified comps — use Auto Find Comps or paste manually</span>`);
+    chips.push(`<span class="chip chip-yellow">⚠ No verified comps — paste sold listings above</span>`);
   }
   document.getElementById("signal-chips").innerHTML = chips.join("");
 }
@@ -353,7 +459,7 @@ function renderCompsSection(prices) {
     const priceList = comps.map(c => fmt$(c.price)).join(" · ");
     const hi = fmt$(g.high_price || comps[comps.length-1]?.price || 0);
     const lo = fmt$(g.low_price  || comps[0]?.price || 0);
-    const src = g.source_name === "User entered" ? "Manual" : escHtml(g.source_name || "eBay");
+    const src = g.source_name === "User entered" ? "Pasted" : escHtml(g.source_name || "Manual");
     html += `<div class="comp-grade-section">
       <div class="comp-grade-label">
         ${gradeLabels[key]}
@@ -475,10 +581,9 @@ function resetForm() {
   document.getElementById("results-placeholder").style.display = "flex";
   document.getElementById("results-loading").style.display     = "none";
   document.getElementById("results-content").style.display     = "none";
-  document.getElementById("auto-find-status").style.display    = "none";
-  for (const g of ["raw","psa8","psa9","psa10"]) {
-    const el = document.getElementById(`status-${g}`);
-    if (el) { el.style.display = "none"; el.textContent = ""; el.className = "comp-status-badge"; }
-  }
+  stopCompPoll();
+  _knownCompTs = {};
+  fetch("/api/reset-comps", { method: "POST" }).catch(() => {});
+  clearBulkImport();
   updateCompLinks();
 }
