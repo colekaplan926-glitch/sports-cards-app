@@ -1,15 +1,14 @@
 """
-Three-tier pricing provider chain:
+Two-tier live pricing provider chain:
   1. SportsCardsProProvider  — structured market API (set SPORTSCARDSPRO_API_KEY)
   2. ApifyEbayProvider       — eBay sold comps via Apify (set APIFY_TOKEN)
-  3. MockPricingProvider     — multiplier estimates, always available as last resort
 
-Priority: SportsCardsPro → Apify → Mock
-Per-grade fallback: if a live provider returns < MIN_LIVE_COMPS for a grade,
-the next provider is tried for that grade only.
+No mock fallback: if no providers are configured or all fail, returns empty
+GradeResult objects (median_price=0, is_live=False, comp_count=0).
+The UI shows "No verified comps found" in that case.
 
-To swap in a different data source, subclass PricingProvider and insert it
-into PROVIDER_CHAIN at the bottom of this file.
+Per-grade fallback: if the primary provider returns < MIN_LIVE_COMPS for a
+grade, the next provider is tried for that grade only.
 """
 
 import os
@@ -91,8 +90,9 @@ class CardPrices:
 # ── Filtering & query helpers ─────────────────────────────────────────────────
 
 _EXCLUDE_KW  = ["lot ", " lot,", "lot of ", "reprint", "custom card",
-                 "fake", "proxy", "fantasy"]
-_AUTO_KW     = ["auto ", "autograph", "auto/", "/auto", "signed "]
+                 "fake", "proxy", "fantasy", "sticker auto", "redemption",
+                 "commemorative", "buyback", "artist proof", "blank back"]
+_AUTO_KW     = ["auto ", "autograph", "auto/", "/auto", "signed ", " auto#"]
 _GRADER_RE   = re.compile(r'\b(psa|bgs|sgc|cgc|beckett|hga)\b', re.I)
 _PARALLEL_RE = re.compile(r'/\s*\d{1,4}\b')   # /25  /50  /99  /100
 _GRADE_RE    = {
@@ -103,14 +103,45 @@ _GRADE_RE    = {
 
 
 def _confidence(n: int, is_live: bool = True) -> str:
-    """LOW = no real comps, MEDIUM = 3–7 real comps, HIGH = 8+ real comps."""
+    """LOW = <3 comps, MEDIUM = 3–4 comps, HIGH = 5+ comps, always LOW if not live."""
     if not is_live or n == 0:
         return "low"
-    if n >= 8:
+    if n >= 5:
         return "high"
     if n >= 3:
         return "medium"
     return "low"
+
+
+def _percentile(data: list, pct: float) -> float:
+    """Linear-interpolation percentile of a pre-sorted list (0–100 scale)."""
+    if not data:
+        return 0.0
+    n   = len(data)
+    idx = (n - 1) * pct / 100.0
+    lo  = int(idx)
+    hi  = min(lo + 1, n - 1)
+    return data[lo] + (data[hi] - data[lo]) * (idx - lo)
+
+
+def _remove_outliers(comps: List[PriceComp]) -> List[PriceComp]:
+    """
+    Tukey-fence IQR outlier removal (requires ≥4 comps to activate).
+    Returns the original list unchanged if fewer than 4 comps, or if
+    removal would leave an empty set.
+    """
+    if len(comps) < 4:
+        return comps
+    prices = sorted(c.price for c in comps)
+    q1  = _percentile(prices, 25)
+    q3  = _percentile(prices, 75)
+    iqr = q3 - q1
+    if iqr == 0:
+        return comps
+    lo  = q1 - 1.5 * iqr
+    hi  = q3 + 1.5 * iqr
+    cleaned = [c for c in comps if lo <= c.price <= hi]
+    return cleaned if cleaned else comps
 
 
 def _compute_stats(comps: List[PriceComp]):
@@ -138,13 +169,14 @@ def _compute_stats(comps: List[PriceComp]):
 def _make_result(comps: List[PriceComp], source_name: str, is_live: bool) -> GradeResult:
     if not comps:
         return GradeResult(0, 0, 0, 0, 0, "—", "low", source_name, is_live)
-    med, avg, lo, hi, dr = _compute_stats(comps)
+    cleaned = _remove_outliers(comps)       # remove price outliers first
+    med, avg, lo, hi, dr = _compute_stats(cleaned)
     return GradeResult(
         median_price=med, avg_price=avg, low_price=lo, high_price=hi,
-        comp_count=len(comps), date_range=dr,
-        confidence=_confidence(len(comps), is_live),
+        comp_count=len(cleaned), date_range=dr,
+        confidence=_confidence(len(cleaned), is_live),
         source_name=source_name, is_live=is_live,
-        comps=comps[:10],   # cap stored comps; median already uses all
+        comps=cleaned[:10],                 # store cleaned comps for UI proof
     )
 
 
@@ -493,17 +525,26 @@ class MockPricingProvider(PricingProvider):
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
+def _empty_card_prices(source: str = "No data source configured") -> CardPrices:
+    """Return an all-zero CardPrices with is_live=False for every grade."""
+    empty = GradeResult(0, 0, 0, 0, 0, "—", "low", source, False)
+    return CardPrices(raw=empty, psa8=empty, psa9=empty, psa10=empty,
+                      provider_name="none")
+
+
 class PricingOrchestrator:
     """
-    Tries providers in priority order.
+    Tries live providers in priority order.
     Falls back on a per-grade basis: if the primary returns < MIN_LIVE_COMPS
-    for a grade, the next provider is tried for that specific grade.
-    Mock is always the final fallback.
+    for a grade, the next provider is tried for that grade.
+
+    No mock fallback — if all providers fail or none are configured, returns
+    empty (is_live=False, comp_count=0) results for every grade so the UI
+    can display "No verified comps found."
     """
 
     def __init__(self, providers: List[PricingProvider]):
         self.providers = providers
-        self._mock = MockPricingProvider()
 
     def _needs_fallback(self, cp: CardPrices) -> List[str]:
         return [
@@ -549,20 +590,6 @@ class PricingOrchestrator:
         for provider in self.providers:
             if not provider.is_available():
                 continue
-
-            # Mock is always last; only reach it if all live providers failed
-            if isinstance(provider, MockPricingProvider):
-                if result is None:
-                    logger.info("All live providers failed — using mock estimates")
-                    result = provider.fetch_all_grades(**kwargs)
-                else:
-                    # Fill any remaining zero-comp grades with mock estimates
-                    mock_result = provider.fetch_all_grades(**kwargs)
-                    low = self._needs_fallback(result)
-                    if low:
-                        result = self._patch(result, mock_result, low)
-                break
-
             try:
                 candidate = provider.fetch_all_grades(**kwargs)
             except Exception as exc:
@@ -579,16 +606,17 @@ class PricingOrchestrator:
                 break   # All grades have enough comps — stop here
 
         if result is None:
-            result = self._mock.fetch_all_grades(**kwargs)
+            logger.info("No live providers available — returning empty results")
+            return _empty_card_prices()
 
         return result
 
 
 # ── Active chain ──────────────────────────────────────────────────────────────
-# Change order or add providers here to adjust the fallback chain.
+# Live providers only — no mock fallback.
+# Set SPORTSCARDSPRO_API_KEY and/or APIFY_TOKEN in env to activate.
 
 PROVIDER_CHAIN = PricingOrchestrator([
     SportsCardsProProvider(),
     ApifyEbayProvider(),
-    MockPricingProvider(),
 ])

@@ -62,17 +62,15 @@ def cardgrade_score(
 def _short_signal(recommendation: str, best_roi: float,
                   confidence: str, break_even: str) -> str:
     if recommendation == "Insufficient Data":
-        return "Connect an API key for a live signal."
+        return "Connect APIFY_TOKEN or SPORTSCARDSPRO_API_KEY to get a real signal."
     if recommendation == "Strong Buy":
         if confidence == "high":
-            return f"High-confidence — {best_roi:.0f}% ROI backed by strong comps."
-        return f"Strong {best_roi:.0f}% ROI — verify with more comps."
+            return f"High-confidence — {best_roi:.0f}% ROI at PSA 9 or better."
+        return f"{best_roi:.0f}% ROI at PSA 9 or better — verify comp count."
     if recommendation == "Possible Buy":
-        if break_even == "psa10":
-            return "Requires PSA 10 to profit — high-risk submission."
-        return f"{best_roi:.0f}% ROI with manageable grading risk."
+        return "Profitable only at PSA 10 — high-risk gem-grade submission."
     if recommendation == "Avoid":
-        return "No profitable grading path at current prices."
+        return "No verified profitable grading path at current prices."
     return ""
 
 
@@ -141,22 +139,32 @@ def calculate_profits(
 
     if not real_data:
         recommendation = "Insufficient Data"
-        why = ("No real sold comps found. Connect APIFY_TOKEN or "
-               "SPORTSCARDSPRO_API_KEY for live pricing.")
-    elif best_roi >= 50:
-        recommendation = "Strong Buy"
-        why = (f"{_GRADE_LABELS[best_key]} yields {best_roi:.1f}% ROI "
-               f"from live comps.")
-        if be_label: why += f" Break-even at {be_label}."
-    elif best_roi >= 20:
-        recommendation = "Possible Buy"
-        why = f"{_GRADE_LABELS[best_key]} yields {best_roi:.1f}% ROI."
-        if be_label: why += f" Break-even at {be_label}."
+        why = ("No verified comps found. Connect APIFY_TOKEN or "
+               "SPORTSCARDSPRO_API_KEY to fetch real sold data.")
     else:
-        recommendation = "Avoid"
-        why = ("No grading strategy is profitable at current prices."
-               if be_label is None else
-               f"Must reach at least {be_label} to break even.")
+        # BUY = profitable at PSA 9 or PSA 8 with real comps and meaningful ROI
+        # WATCH = profitable only at PSA 10 (gem-grade requirement)
+        # Avoid = no profitable grading path
+        psa9_ok = results["psa9"]["profit"] >= 0 and results["psa9"]["roi"] >= 20
+        psa8_ok = results["psa8"]["profit"] >= 0 and results["psa8"]["roi"] >= 20
+        psa10_ok = results["psa10"]["profit"] >= 0
+
+        if psa9_ok or psa8_ok:
+            target    = "PSA 9" if psa9_ok else "PSA 8"
+            target_roi = results["psa9"]["roi"] if psa9_ok else results["psa8"]["roi"]
+            recommendation = "Strong Buy"
+            why = (f"Profitable at {target} — {target_roi:.1f}% ROI "
+                   f"from real sold comps.")
+            if be_label: why += f" Break-even at {be_label}."
+        elif psa10_ok:
+            recommendation = "Possible Buy"
+            why = "Profitable only at PSA 10 — gem-grade submission required."
+            if be_label: why += f" Break-even at {be_label}."
+        else:
+            recommendation = "Avoid"
+            why = ("No grading strategy is profitable at current verified prices."
+                   if be_label is None else
+                   f"Must reach at least {be_label} to break even.")
 
     cg = cardgrade_score(best_roi, best_conf, avg_comps, real_data, be_grade)
 

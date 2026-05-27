@@ -118,14 +118,12 @@ def break_even_grade(results: dict) -> str:
 
 
 def _overall_confidence(prices: dict) -> str:
-    """Worst confidence across all four grades."""
+    """Best confidence among PSA graded exit grades (psa8/psa9/psa10)."""
     order = {"low": 0, "medium": 1, "high": 2}
-    worst = "high"
-    for g in ("raw", "psa8", "psa9", "psa10"):
-        c = prices[g].get("confidence", "low")
-        if order[c] < order[worst]:
-            worst = c
-    return worst
+    return max(
+        (prices[g].get("confidence", "low") for g in ("psa8", "psa9", "psa10")),
+        key=lambda c: order.get(c, 0),
+    )
 
 
 def snipe_recommendation(
@@ -135,13 +133,15 @@ def snipe_recommendation(
     min_profit: float,
     confidence: str,
     has_real_data: bool = True,
+    results: Optional[dict] = None,
+    prices: Optional[dict] = None,
 ) -> tuple[str, str]:
     """
     Returns (recommendation, reason).
 
-    BUY   — meets thresholds AND confidence is medium or high AND real comps exist.
-    WATCH — meets thresholds BUT confidence is low (< 3 real comps).
-    PASS  — does not meet thresholds OR no real comp data.
+    BUY   — profitable at PSA 9 or better with ≥3 real sold comps (medium/high confidence).
+    WATCH — profitable at PSA 9+ but low comp count, OR profitable only at PSA 10.
+    PASS  — no profitable grading path, or no real sold comp data.
     """
     if not has_real_data:
         return "PASS", (
@@ -149,27 +149,47 @@ def snipe_recommendation(
             "Cannot make a data-driven recommendation."
         )
 
-    meets = best_roi >= min_roi and best_profit >= min_profit
+    results = results or {}
+    prices  = prices  or {}
 
-    if not meets:
-        if best_roi < min_roi:
-            reason = f"Best ROI is {best_roi:.1f}%, below your {min_roi:.0f}% minimum."
-        else:
-            reason = f"Best profit is ${best_profit:.2f}, below your ${min_profit:.2f} minimum."
-        return "PASS", reason
-
-    if confidence == "low":
-        reason = (
-            f"Numbers look good ({best_roi:.0f}% ROI, ${best_profit:.2f} profit) "
-            f"but fewer than 3 real sold comps found. Verify manually before buying."
+    def _grade_ok(g: str) -> bool:
+        r = results.get(g, {})
+        p = prices.get(g, {})
+        return (
+            float(r.get("profit", -999)) >= 0 and
+            float(r.get("roi", 0))       >= min_roi and
+            int(p.get("comp_count", 0))  >  0
         )
-        return "WATCH", reason
 
-    reason = (
-        f"{best_roi:.0f}% ROI and ${best_profit:.2f} profit "
-        f"with {confidence} confidence ({confidence} comp count)."
-    )
-    return "BUY", reason
+    psa8_ok  = _grade_ok("psa8")
+    psa9_ok  = _grade_ok("psa9")
+    psa10_ok = _grade_ok("psa10")
+
+    if psa9_ok or psa8_ok:
+        target     = "PSA 9" if psa9_ok else "PSA 8"
+        target_key = "psa9"  if psa9_ok else "psa8"
+        target_roi = float(results.get(target_key, {}).get("roi", best_roi))
+        if confidence in ("medium", "high"):
+            return "BUY", (
+                f"Profitable at {target} — {target_roi:.0f}% ROI "
+                f"with {confidence}-confidence real sold comps."
+            )
+        return "WATCH", (
+            f"Profitable at {target} but fewer than 3 verified comps. "
+            "Confirm manually before buying."
+        )
+
+    if psa10_ok:
+        return "WATCH", (
+            f"Profitable only at PSA 10 — {best_roi:.0f}% ROI "
+            "requires gem-grade submission."
+        )
+
+    if best_roi < min_roi:
+        return "PASS", (
+            f"Best ROI is {best_roi:.1f}%, below your {min_roi:.0f}% minimum."
+        )
+    return "PASS", "No profitable grading path at current verified prices."
 
 
 # ── Listing fetchers ──────────────────────────────────────────────────────────
@@ -312,11 +332,13 @@ class ApifyListingFetcher(ListingFetcher):
         return 0.0
 
 
-def _get_listing_fetcher() -> ListingFetcher:
+def _get_listing_fetcher() -> Optional[ListingFetcher]:
+    """Returns the live listing fetcher, or None if APIFY_TOKEN is not set."""
     f = ApifyListingFetcher()
     if f.is_available():
         return f
-    return MockListingFetcher()
+    logger.info("APIFY_TOKEN not set — snipe scan will return 0 listings")
+    return None
 
 
 # ── Per-listing analysis ──────────────────────────────────────────────────────
@@ -357,6 +379,8 @@ def analyze_listing(
         min_profit    = float(search.get("min_profit", 0)),
         confidence    = confidence,
         has_real_data = has_real_data,
+        results       = results,
+        prices        = prices,
     )
 
     if has_real_data:
@@ -525,7 +549,10 @@ def run_search(search_id: int) -> int:
 
 
 def _do_scan(conn, search, search_id, scan_run_id) -> tuple[int, int]:
-    fetcher  = _get_listing_fetcher()
+    fetcher = _get_listing_fetcher()
+    if fetcher is None:
+        logger.info("Search %s: no listing fetcher configured", search_id)
+        return 0, 0
     listings = fetcher.fetch(search)
     logger.info("Search %s: %d listings fetched", search_id, len(listings))
 

@@ -91,7 +91,7 @@ function renderResults(r, data) {
 
   renderSignalCard(r, data);
   renderGradeChips(prices, results, best, has_real_data);
-  renderAnalysisTable(results, best, has_real_data);
+  renderAnalysisTable(results, best, has_real_data, prices);
   renderCompsSection(prices);
   renderFormulas(results, costs);
 }
@@ -166,7 +166,7 @@ function renderSignalCard(r, data) {
   }
 
   if (!has_real_data) {
-    chips.push(`<span class="chip chip-yellow">⚠ Estimated values — not for investment decisions</span>`);
+    chips.push(`<span class="chip chip-yellow">⚠ No verified comps found — connect APIFY_TOKEN or SPORTSCARDSPRO_API_KEY</span>`);
   }
 
   document.getElementById("signal-chips").innerHTML = chips.join("");
@@ -187,19 +187,25 @@ function renderGradeChips(prices, results, best, hasRealData) {
     const dot    = isLive
       ? `<span class="live-dot" title="${g.comp_count} sold comps"></span>`
       : `<span class="est-dot" title="Estimated"></span>`;
-    const isBest = key === best.key && hasRealData;
+    const isBest = key === best.key && hasRealData && isLive;
     const border = isBest ? "style='border-color:var(--accent)'" : "";
+    const priceHtml  = isLive
+      ? `<div class="grade-chip-value ${valCls}">${fmt$(g.median_price)}</div>`
+      : `<div class="grade-chip-value text-muted" style="font-size:11px">No comps</div>`;
+    const profitHtml = isLive
+      ? `<div class="grade-chip-profit ${profCls(r.profit)}">${r.profit >= 0 ? "+" : ""}${fmt$(r.profit)}</div>`
+      : `<div class="grade-chip-profit text-muted">—</div>`;
     return `<div class="grade-chip-v2" ${border}>
       <div class="grade-chip-header">${dot}<span class="grade-chip-label">${label}</span></div>
-      <div class="grade-chip-value ${valCls}">${fmt$(g.median_price)}</div>
-      <div class="grade-chip-profit ${profCls(r.profit)}">${r.profit >= 0 ? "+" : ""}${fmt$(r.profit)}</div>
+      ${priceHtml}
+      ${profitHtml}
       <div class="grade-chip-conf"><span class="confidence-badge ${confCls(g.confidence)}">${capFirst(g.confidence)}</span></div>
     </div>`;
   }).join("");
 }
 
 // ── Analysis table (expandable) ────────────────────────
-function renderAnalysisTable(results, best, hasRealData) {
+function renderAnalysisTable(results, best, hasRealData, prices) {
   const rows = [
     { label:"Sell Raw",       cls:"grade-raw", key:"raw"   },
     { label:"Grade → PSA 8",  cls:"grade-8",   key:"psa8"  },
@@ -208,8 +214,19 @@ function renderAnalysisTable(results, best, hasRealData) {
   ];
   document.getElementById("results-tbody").innerHTML = rows.map(row => {
     const g      = results[row.key];
-    const isBest = row.key === best.key && hasRealData;
+    const p      = prices ? prices[row.key] : null;
+    const isLive = p && p.is_live && p.comp_count >= 1;
+    const isBest = row.key === best.key && hasRealData && isLive;
     const star   = isBest ? ' <span class="best-badge">★ Best</span>' : "";
+    if (!isLive) {
+      return `<tr style="opacity:0.45">
+        <td><span class="grade-badge ${row.cls}">${row.label}</span></td>
+        <td class="text-muted fs-sm">No comps</td>
+        <td class="text-muted fs-sm">—</td>
+        <td class="text-muted fs-sm">—</td>
+        <td class="text-muted fs-sm">—</td>
+      </tr>`;
+    }
     return `<tr class="${isBest ? "row-best" : ""}">
       <td><span class="grade-badge ${row.cls}">${row.label}</span>${star}</td>
       <td class="fw-bold">${fmt$(g.sale_price)}</td>
@@ -235,8 +252,8 @@ function renderCompsSection(prices) {
 
     if (!isLive) {
       html += `<div class="comp-grade-section">
-        <div class="comp-grade-label">${gradeLabels[key]} ${srcBadge}</div>
-        <div class="no-comps-msg">No live sold comps — using estimated pricing model.</div>
+        <div class="comp-grade-label">${gradeLabels[key]}</div>
+        <div class="no-comps-msg">No verified comps found.</div>
       </div>`;
       continue;
     }
@@ -427,3 +444,24 @@ function resetForm() {
   document.getElementById("results-loading").style.display     = "none";
   document.getElementById("results-content").style.display     = "none";
 }
+
+// ── Provider status check ───────────────────────────────
+async function checkProviderStatus() {
+  try {
+    const s   = await (await fetch("/api/provider-status")).json();
+    const bar = document.getElementById("provider-bar");
+    if (!bar) return;
+    if (!s.any_configured) {
+      bar.style.display = "flex";
+      const parts = [];
+      if (!s.apify_configured)         parts.push("APIFY_TOKEN");
+      if (!s.sportscardspro_configured) parts.push("SPORTSCARDSPRO_API_KEY");
+      document.getElementById("provider-bar-keys").textContent =
+        "Set " + parts.join(" or ") + " to fetch real sold comps.";
+    } else {
+      bar.style.display = "none";
+    }
+  } catch { /* ignore — server may not be ready yet */ }
+}
+// Run immediately on page load
+checkProviderStatus();

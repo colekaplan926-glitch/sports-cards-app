@@ -156,6 +156,19 @@ def init_db():
         db.commit()
 
 
+# ── Status route ─────────────────────────────────────────────────────────────
+
+@app.route("/api/provider-status", methods=["GET"])
+def provider_status():
+    apify_ok = bool(os.getenv("APIFY_TOKEN"))
+    scp_ok   = bool(os.getenv("SPORTSCARDSPRO_API_KEY"))
+    return jsonify({
+        "apify_configured":         apify_ok,
+        "sportscardspro_configured": scp_ok,
+        "any_configured":           apify_ok or scp_ok,
+    })
+
+
 # ── Calculator routes ─────────────────────────────────────────────────────────
 
 @app.route("/")

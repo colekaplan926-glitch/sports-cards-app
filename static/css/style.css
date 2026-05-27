@@ -1318,6 +1318,22 @@ tbody tr:hover .watchlist-action { opacity: 1; }
   font-size: 12px; display: flex; align-items: center; gap: 8px;
 }
 
+/* ── Provider status bar ── */
+.provider-bar {
+  background: #2a1f0a; border-bottom: 1px solid #5a3e10;
+  padding: 10px 2rem; display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--yellow);
+}
+.provider-bar-icon { font-size: 1.1rem; }
+.provider-bar-text { flex: 1; }
+.provider-bar-detail { color: var(--text-muted); margin-left: 6px; font-size: 12px; }
+
+/* ── No-comps message ── */
+.no-comps-msg {
+  color: var(--text-muted); font-size: 13px;
+  padding: 8px 0; font-style: italic;
+}
+
 /* ─────────────────────────────────────────────────── */
 .modal-title {
   font-size: 1.1rem;
