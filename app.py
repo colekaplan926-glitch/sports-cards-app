@@ -487,71 +487,141 @@ def reset_comps():
 
 # ── Bulk text parser — Quick Import ──────────────────────────────────────────
 
-_PSA10_PAT = re.compile(r'\bpsa\s*(?:gem\s*mint\s*)?10\b', re.I)
-_PSA9_PAT  = re.compile(r'\bpsa\s*9(?!\d)',                re.I)
-_PSA8_PAT  = re.compile(r'\bpsa\s*8(?!\d)',                re.I)
+# NOTE: _OTHER_GRADER is also used by _should_keep() above — keep it here.
 _OTHER_GRADER = re.compile(r'\b(bgs|sgc|cgc|beckett|hga|gma)\b', re.I)
-_OTHER_PSA    = re.compile(r'\bpsa\s*\d+',                 re.I)
+
+_DOLLAR_RE   = re.compile(r'(?:US\s*)?\$\s*([0-9,]+(?:\.\d{1,2})?)', re.I)
+_SALE_RE     = re.compile(
+    r'(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)'
+    r'\s+([0-9][0-9,]*(?:\.\d{2})?)\b', re.I)
+_GRADE10_RE  = re.compile(r'\bpsa\s*(?:gem\s*mint\s*)?10\b|\bgem\s*mt\s*10\b|\bgrade\s*10\b', re.I)
+_GRADE9_RE   = re.compile(r'\bpsa\s*9(?!\d)|\bmint\s*9\b|\bgrade\s*9\b', re.I)
+_GRADE8_RE   = re.compile(r'\bpsa\s*8(?!\d)|\bnm.?mt\s*8\b|\bgrade\s*8\b', re.I)
+_ANY_PSA_RE  = re.compile(r'\bpsa\s*\d+', re.I)
+_SHIP_RE     = re.compile(r'\bshipping\b|\bpostage\b|\bhandling\b', re.I)
+_TRIVIAL_RE  = re.compile(
+    r'\b(?:sold|for|free|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|pm|am|the|and|or)\b|\d+',
+    re.I)
 _BULK_EXCLUDE = ["lot of", " lot ", "lots of", "reprint", "custom card",
                  "fake ", "proxy", "redemption", "blank back", "commemorative"]
 
 
-def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
-    """Parse a block of pasted sold-listing text → {grade: [prices]}."""
-    ctx = ctx or {}
-    variation        = (ctx.get("variation") or "").lower()
-    is_auto_card     = "auto" in variation
-    result           = {g: [] for g in ("raw", "psa8", "psa9", "psa10")}
-    lines            = text.splitlines()
+def _extract_dollar_price(line: str):
+    """Return float price if line has a $ price, else None. Never parses bare numbers."""
+    m = _DOLLAR_RE.search(line)
+    if m:
+        try:
+            p = float(m.group(1).replace(",", ""))
+            return p if 0.5 < p < 500_000 else None
+        except ValueError:
+            return None
+    m2 = _SALE_RE.search(line)
+    if m2:
+        try:
+            p = float(m2.group(1).replace(",", ""))
+            return p if 0.5 < p < 500_000 else None
+        except ValueError:
+            return None
+    return None
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+
+def _detect_grade_key(ll: str):
+    """Return 'psa10'/'psa9'/'psa8'/'SKIP'/None. None means no grade = raw candidate."""
+    if _GRADE10_RE.search(ll): return "psa10"
+    if _GRADE9_RE.search(ll):  return "psa9"
+    if _GRADE8_RE.search(ll):  return "psa8"
+    if _ANY_PSA_RE.search(ll): return "SKIP"   # PSA 7, 6, etc.
+    return None
+
+
+def _is_bare_price_line(line: str) -> bool:
+    """True if the line is just a price with little else — not a listing title."""
+    s = _DOLLAR_RE.sub("", line)
+    s = _SALE_RE.sub("", s)
+    s = re.sub(r'\b(?:sold|for|price|accepted|final|us)\b', "", s, flags=re.I)
+    s = re.sub(r'[+\s\t,.;:()\[\]$#/*\-]', "", s)
+    return len(s) < 12
+
+
+def _is_trivial_line(ll: str) -> bool:
+    """True if the line is just dates / sale-status words — not a listing title."""
+    s = _TRIVIAL_RE.sub("", ll)
+    s = re.sub(r'[^a-z]', "", s)
+    return len(s) < 5
+
+
+def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
+    """
+    Parse a block of pasted sold-listing text → {grade: [prices]}.
+
+    Algorithm: line-by-line with a grade look-back window.
+    - Lines with both grade and price → classify from that line.
+    - Bare price-only lines (e.g. "$430") → borrow grade from the most recent
+      grade-bearing line within 2 lines, so eBay's multi-line format works.
+    - Substantive non-grade, non-price lines (listing titles for raw cards)
+      reset the grade context so PSA grades never leak across listings.
+    """
+    ctx = ctx or {}
+    variation    = (ctx.get("variation") or "").lower()
+    is_auto_card = "auto" in variation
+    result       = {g: [] for g in ("raw", "psa8", "psa9", "psa10")}
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    prev_grade     = None
+    prev_grade_idx = -10
+
+    for i, line in enumerate(lines):
         ll = line.lower()
 
-        # Skip known-bad listings
+        # ── Exclusions ────────────────────────────────────────────────────────
         if any(kw in ll for kw in _BULK_EXCLUDE):
+            prev_grade = None
             continue
         if not is_auto_card and re.search(r'\b(auto|autograph|signed)\b', ll):
+            prev_grade = None
             continue
-
-        # Extract price — $ sign required, OR explicit sale language before a bare number.
-        # Bare numbers (years, card #s, jersey #s, serial #s) are never treated as prices.
-        m = re.search(r'(?:US\s*)?\$\s*([0-9,]+(?:\.\d{1,2})?)', line, re.I)
-        if m:
-            price_str = m.group(1).replace(",", "")
-        else:
-            m2 = re.search(
-                r'(?:sold(?:\s+for)?|price\s*:|accepted(?:\s+for)?|final\s+price\s*:?)'
-                r'\s+([0-9][0-9,]*(?:\.\d{2})?)\b',
-                line, re.I,
-            )
-            if not m2:
-                continue
-            price_str = m2.group(1).replace(",", "")
-        try:
-            price = float(price_str)
-        except (ValueError, AttributeError):
-            continue
-        if not (0.5 < price < 500_000):
-            continue
-
-        # Detect grade
         if _OTHER_GRADER.search(ll):
-            continue                          # non-PSA graders → skip
-        if _PSA10_PAT.search(ll):
-            grade = "psa10"
-        elif _PSA9_PAT.search(ll):
-            grade = "psa9"
-        elif _PSA8_PAT.search(ll):
-            grade = "psa8"
-        elif _OTHER_PSA.search(ll):
-            continue                          # PSA 7 / PSA 6 etc → skip
-        else:
-            grade = "raw"                     # no grader mention → raw
+            prev_grade = None
+            continue
+        if _SHIP_RE.search(ll):
+            continue                        # shipping line — preserve grade context
 
-        result[grade].append(price)
+        grade_on_line = _detect_grade_key(ll)
+        if grade_on_line == "SKIP":
+            prev_grade = None
+            continue
+
+        price = _extract_dollar_price(line)
+
+        if price is not None:
+            bare = _is_bare_price_line(line)
+
+            if grade_on_line:
+                # Grade and price on the same line — definitive classification
+                grade = grade_on_line
+                prev_grade     = grade_on_line
+                prev_grade_idx = i
+            elif bare and prev_grade is not None and (i - prev_grade_idx) <= 2:
+                # Bare price line (just "$430") — borrow grade from recent context
+                grade = prev_grade
+                # Keep prev_grade so the next bare price can also borrow it
+            else:
+                # Mixed non-grade line with a price → raw; reset context
+                grade = "raw"
+                if not bare:
+                    prev_grade = None
+
+            result[grade].append(price)
+
+        else:
+            # No price on this line
+            if grade_on_line:
+                prev_grade     = grade_on_line
+                prev_grade_idx = i
+            elif not _is_trivial_line(ll):
+                # Substantive line with no grade and no price → new listing starting
+                prev_grade = None
 
     return result
 
