@@ -1341,26 +1341,51 @@ tbody tr:hover .watchlist-action { opacity: 1; }
   margin-bottom: 1.5rem;
 }
 
-/* ── Search links panel ── */
-.search-links-row {
+/* ── Comp links panel ── */
+.comp-links-grid {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.comp-link-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 30px;
+}
+
+.comp-link-grade {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 44px;
+  flex-shrink: 0;
+}
+
+.comp-link-btns {
+  display: flex;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
+/* Search link buttons — base size and sm modifier */
 .search-link-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 9px 16px;
+  gap: 4px;
+  padding: 7px 13px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-decoration: none;
   border: 1px solid var(--border);
   background: var(--surface2);
   color: var(--text-muted);
-  transition: all 0.2s;
+  transition: all 0.18s;
   white-space: nowrap;
 }
 
@@ -1370,7 +1395,42 @@ tbody tr:hover .watchlist-action { opacity: 1; }
   background: rgba(108,99,255,0.08);
 }
 
-/* ── User-entered comps display ── */
+.search-link-btn.sm {
+  padding: 4px 9px;
+  font-size: 11px;
+}
+
+/* Per-grade status badge in the comp-link-row */
+.comp-status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.comp-status-badge.found  {
+  background: rgba(0,200,150,0.10); color: var(--green);
+  border: 1px solid rgba(0,200,150,0.28);
+}
+.comp-status-badge.failed {
+  background: var(--surface2); color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+/* Auto-find summary message */
+.auto-find-msg {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+}
+.auto-find-msg.loading { color: var(--text-muted); background: var(--surface2); border: 1px solid var(--border); }
+.auto-find-msg.success { color: var(--green);      background: rgba(0,200,150,0.08); border: 1px solid rgba(0,200,150,0.25); }
+.auto-find-msg.failed  { color: var(--text-muted); background: var(--surface2);     border: 1px solid var(--border); }
+
+/* ── User-entered / auto-found comps display ── */
 .user-comps-stats {
   display: flex;
   align-items: center;

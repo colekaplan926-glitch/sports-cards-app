@@ -2,6 +2,9 @@ import json
 import logging
 import os
 import sqlite3
+import statistics as _stats
+import threading as _threading
+import urllib.parse as _urllib_parse
 from flask import Flask, request, jsonify, render_template, g
 from calculations import calculate_profits
 import snipe
@@ -153,6 +156,115 @@ def init_db():
             db.execute("ALTER TABLE found_deals ADD COLUMN cardgrade_score INTEGER DEFAULT 0")
 
         db.commit()
+
+
+# ── Search URL builder (shared by auto-comps endpoint) ───────────────────────
+
+def _search_urls_for_card(player, year, set_name, card_number, variation):
+    from pricing import _build_query
+    urls = {}
+    for grade in ("raw", "psa8", "psa9", "psa10"):
+        q = _build_query(player, year, set_name, card_number, grade, variation)
+        urls[grade] = {
+            "ebay":   ("https://www.ebay.com/sch/i.html?" +
+                       _urllib_parse.urlencode({"_nkw": q, "LH_Sold": "1",
+                                                "LH_Complete": "1", "_sop": "13"})),
+            "p130":   "https://www.130point.com/sales/?" + _urllib_parse.urlencode({"q": q}),
+            "google": "https://www.google.com/search?" + _urllib_parse.urlencode({"q": q + " sold"}),
+        }
+    return urls
+
+
+# ── Auto-comps (free scrape attempt) ─────────────────────────────────────────
+
+@app.route("/api/auto-comps", methods=["POST"])
+def auto_comps():
+    data      = request.get_json() or {}
+    player    = (data.get("player_name") or "").strip()
+    year      = (data.get("year")        or "").strip()
+    set_name  = (data.get("set_name")    or "").strip()
+    card_num  = (data.get("card_number") or "").strip()
+    variation = (data.get("variation")   or "").strip()
+
+    if not (player or set_name):
+        return jsonify({"error": "Enter card details first"}), 400
+
+    search_urls = _search_urls_for_card(player, year, set_name, card_num, variation)
+
+    from pricing import EbayScraperProvider, Point130Provider
+
+    grade_results = {}
+    _lock = _threading.Lock()
+
+    def _run():
+        scraper = EbayScraperProvider()
+        backup  = Point130Provider()
+        if not scraper.is_available() and not backup.is_available():
+            for g in ("raw", "psa8", "psa9", "psa10"):
+                with _lock:
+                    grade_results[g] = {"found": False, "count": 0, "median": 0,
+                                        "prices_csv": "", "error": "bs4 not installed"}
+            return
+
+        for grade in ("psa10", "psa9", "psa8", "raw"):
+            comps, err = [], ""
+            if scraper.is_available():
+                try:
+                    comps, err = scraper._fetch_grade(
+                        player, year, set_name, card_num, grade, variation)
+                except Exception as exc:
+                    err = str(exc)
+
+            if (err or not comps) and backup.is_available():
+                try:
+                    bc, be = backup._fetch_grade(
+                        player, year, set_name, card_num, grade, variation)
+                    if bc:
+                        comps, err = bc, ""
+                    elif not err:
+                        err = be or "No comps found"
+                except Exception as exc2:
+                    if not err:
+                        err = str(exc2)
+
+            if comps:
+                prices = sorted(c.price for c in comps)
+                median = _stats.median(prices)
+                csv_s  = ", ".join(
+                    str(int(p)) if p == int(p) else f"{p:.2f}" for p in prices
+                )
+                with _lock:
+                    grade_results[grade] = {
+                        "found": True, "count": len(comps),
+                        "median": round(median, 2),
+                        "prices_csv": csv_s, "error": None,
+                    }
+            else:
+                with _lock:
+                    grade_results[grade] = {
+                        "found": False, "count": 0, "median": 0,
+                        "prices_csv": "", "error": err or "No matching comps found",
+                    }
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=25)
+
+    for grade in ("raw", "psa8", "psa9", "psa10"):
+        if grade not in grade_results:
+            grade_results[grade] = {
+                "found": False, "count": 0, "median": 0, "prices_csv": "",
+                "error": "Timed out — try the search links",
+            }
+
+    any_found = any(v["found"] for v in grade_results.values())
+    return jsonify({
+        "success":     any_found,
+        "grades":      grade_results,
+        "search_urls": search_urls,
+        "message":     ("Comps found! Click Calculate." if any_found
+                        else "Could not auto-fetch comps. Use the search links."),
+    })
 
 
 # ── Comp parser ──────────────────────────────────────────────────────────────
