@@ -4,7 +4,6 @@ import os
 import sqlite3
 from flask import Flask, request, jsonify, render_template, g
 from calculations import calculate_profits
-from pricing import PROVIDER_CHAIN
 import snipe
 
 logging.basicConfig(level=logging.INFO)
@@ -156,17 +155,58 @@ def init_db():
         db.commit()
 
 
-# ── Status route ─────────────────────────────────────────────────────────────
+# ── Comp parser ──────────────────────────────────────────────────────────────
 
-@app.route("/api/provider-status", methods=["GET"])
-def provider_status():
-    apify_ok = bool(os.getenv("APIFY_TOKEN"))
-    scp_ok   = bool(os.getenv("SPORTSCARDSPRO_API_KEY"))
-    return jsonify({
-        "apify_configured":         apify_ok,
-        "sportscardspro_configured": scp_ok,
-        "any_configured":           apify_ok or scp_ok,
-    })
+def _parse_user_comps(comps_str: str) -> dict:
+    """Parse comma-separated prices entered by the user into a prices-dict grade entry."""
+    empty = {
+        "median_price": 0, "confidence": "low", "is_live": False,
+        "comp_count": 0, "comps": [], "source_name": "User entered",
+        "high_price": 0, "low_price": 0, "date_range": "—",
+    }
+    if not comps_str or not str(comps_str).strip():
+        return empty
+
+    prices = []
+    for part in str(comps_str).split(","):
+        cleaned = part.strip().replace("$", "").replace(",", "")
+        try:
+            v = float(cleaned)
+            if 0.5 < v < 500_000:
+                prices.append(v)
+        except ValueError:
+            pass
+
+    if not prices:
+        return empty
+
+    # IQR outlier removal when 4+ comps (same rule as the scraper)
+    if len(prices) >= 4:
+        sp = sorted(prices)
+        n  = len(sp)
+        q1, q3 = sp[n // 4], sp[(3 * n) // 4]
+        iqr = q3 - q1
+        if iqr > 0:
+            filtered = [p for p in prices if (q1 - 1.5 * iqr) <= p <= (q3 + 1.5 * iqr)]
+            if filtered:
+                prices = filtered
+
+    sp = sorted(prices)
+    n  = len(sp)
+    median = sp[n // 2] if n % 2 == 1 else (sp[n // 2 - 1] + sp[n // 2]) / 2.0
+    conf   = "high" if n >= 5 else "medium" if n >= 3 else "low"
+
+    return {
+        "median_price": round(median, 2),
+        "confidence":   conf,
+        "is_live":      True,
+        "comp_count":   n,
+        "comps":        [{"price": p, "title": "", "url": "", "date": ""} for p in sp],
+        "source_name":  "User entered",
+        "high_price":   sp[-1],
+        "low_price":    sp[0],
+        "date_range":   "—",
+    }
 
 
 # ── Calculator routes ─────────────────────────────────────────────────────────
@@ -182,32 +222,17 @@ def calculate():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    try:
-        set_name  = data.get("set_name", "")
-        variation = (data.get("variation") or "").strip()
-        if variation and variation.lower() not in ("base", ""):
-            set_name = (set_name + " " + variation).strip()
-
-        card_prices = PROVIDER_CHAIN.fetch(
-            player_name   = data.get("player_name", ""),
-            year          = data.get("year", ""),
-            set_name      = set_name,
-            card_number   = data.get("card_number", ""),
-            sport         = data.get("sport", ""),
-            raw_buy_price = float(data.get("raw_price", 0)),
-            include_autos = data.get("include_autos", False),
-            variation     = "",   # already merged into set_name above
-        )
-    except Exception as exc:
-        logger.error("Pricing fetch failed: %s", exc)
-        return jsonify({"error": "Pricing lookup failed. Try again."}), 500
-
-    prices_dict = card_prices.to_dict()
-    calc        = calculate_profits(
-        raw_price       = float(data.get("raw_price", 0)),
-        grading_cost    = float(data.get("grading_cost", 0)),
-        shipping        = float(data.get("shipping_fees", 0)),
-        selling_fee_pct = float(data.get("selling_fee_pct", 0)),
+    prices_dict = {
+        "raw":   _parse_user_comps(data.get("comps_raw",   "")),
+        "psa8":  _parse_user_comps(data.get("comps_psa8",  "")),
+        "psa9":  _parse_user_comps(data.get("comps_psa9",  "")),
+        "psa10": _parse_user_comps(data.get("comps_psa10", "")),
+    }
+    calc = calculate_profits(
+        raw_price       = float(data.get("raw_price", 0) or 0),
+        grading_cost    = float(data.get("grading_cost", 0) or 0),
+        shipping        = float(data.get("shipping_fees", 0) or 0),
+        selling_fee_pct = float(data.get("selling_fee_pct", 0) or 0),
         prices          = prices_dict,
         set_name        = data.get("set_name", ""),
     )
@@ -230,30 +255,17 @@ def add_to_watchlist():
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
-    try:
-        set_name  = data.get("set_name", "")
-        variation = (data.get("variation") or "").strip()
-        if variation and variation.lower() not in ("base", ""):
-            set_name = (set_name + " " + variation).strip()
-
-        card_prices = PROVIDER_CHAIN.fetch(
-            player_name   = data.get("player_name", ""),
-            year          = data.get("year", ""),
-            set_name      = set_name,
-            card_number   = data.get("card_number", ""),
-            sport         = data.get("sport", ""),
-            raw_buy_price = float(data.get("raw_price", 0)),
-        )
-    except Exception as exc:
-        logger.error("Pricing fetch failed: %s", exc)
-        return jsonify({"error": "Pricing lookup failed"}), 500
-
-    prices_dict = card_prices.to_dict()
+    prices_dict = {
+        "raw":   _parse_user_comps(data.get("comps_raw",   "")),
+        "psa8":  _parse_user_comps(data.get("comps_psa8",  "")),
+        "psa9":  _parse_user_comps(data.get("comps_psa9",  "")),
+        "psa10": _parse_user_comps(data.get("comps_psa10", "")),
+    }
     calc = calculate_profits(
-        raw_price       = float(data.get("raw_price", 0)),
-        grading_cost    = float(data.get("grading_cost", 0)),
-        shipping        = float(data.get("shipping_fees", 0)),
-        selling_fee_pct = float(data.get("selling_fee_pct", 0)),
+        raw_price       = float(data.get("raw_price", 0) or 0),
+        grading_cost    = float(data.get("grading_cost", 0) or 0),
+        shipping        = float(data.get("shipping_fees", 0) or 0),
+        selling_fee_pct = float(data.get("selling_fee_pct", 0) or 0),
         prices          = prices_dict,
     )
     best = calc["best"]
@@ -266,7 +278,7 @@ def add_to_watchlist():
            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (data.get("player_name",""), data.get("year",""), data.get("set_name",""),
          data.get("card_number",""), data.get("sport",""),
-         float(data.get("raw_price",0)), prices_dict["psa10"]["median_price"],
+         float(data.get("raw_price", 0) or 0), prices_dict["psa10"]["median_price"],
          best["profit"], best["roi"], best["label"], calc["recommendation"]),
     )
     db.commit()

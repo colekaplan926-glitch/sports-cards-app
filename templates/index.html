@@ -13,26 +13,17 @@
 <header class="app-header">
   <div class="logo"><div class="logo-icon">🃏</div>CardGrade Pro</div>
   <nav class="nav-tabs">
-    <button class="nav-tab active" data-tab="calculator"     onclick="showPage('calculator')">Calculator</button>
-    <button class="nav-tab"        data-tab="watchlist"      onclick="showPage('watchlist')">Watchlist</button>
-    <button class="nav-tab"        data-tab="snipe-searches" onclick="showPage('snipe-searches')">Snipe Searches</button>
-    <button class="nav-tab"        data-tab="snipe-deals"    onclick="showPage('snipe-deals')">Snipe Deals</button>
+    <button class="nav-tab active" data-tab="calculator" onclick="showPage('calculator')">Calculator</button>
+    <button class="nav-tab"        data-tab="watchlist"  onclick="showPage('watchlist')">Watchlist</button>
   </nav>
 </header>
-
-<div id="provider-bar" class="provider-bar" style="display:none">
-  <span class="provider-bar-icon">🔌</span>
-  <span class="provider-bar-text">No live data source connected.
-    <span id="provider-bar-keys" class="provider-bar-detail"></span>
-  </span>
-</div>
 
 <main class="main-content">
 
   <!-- ════════════════ CALCULATOR PAGE ════════════════ -->
   <div class="page active" id="page-calculator">
     <div class="page-intro">
-      <p>Enter your card details and what you paid raw — we fetch real eBay sold comps to show you the exact profit for every exit strategy.</p>
+      <p>Enter card details and costs, open the search links to find sold comps, paste the prices in the boxes below, then click <strong>Calculate</strong>.</p>
     </div>
 
     <form id="calc-form" onsubmit="return false;">
@@ -41,24 +32,25 @@
         <!-- ── Input column ── -->
         <div class="input-col">
 
+          <!-- Card Details -->
           <div class="panel">
             <div class="panel-title"><span class="icon icon-purple">🎴</span> Card Details</div>
             <div class="grid-2">
               <div class="form-group">
                 <label for="player_name">Player Name</label>
-                <input type="text" id="player_name" placeholder="e.g. Patrick Mahomes" />
+                <input type="text" id="player_name" placeholder="e.g. Patrick Mahomes" oninput="updateSearchLinks()" />
               </div>
               <div class="form-group">
                 <label for="year">Year</label>
-                <input type="text" id="year" placeholder="e.g. 2017" maxlength="4" />
+                <input type="text" id="year" placeholder="e.g. 2017" maxlength="4" oninput="updateSearchLinks()" />
               </div>
               <div class="form-group">
                 <label for="set_name">Set Name</label>
-                <input type="text" id="set_name" placeholder="e.g. Panini Prizm" />
+                <input type="text" id="set_name" placeholder="e.g. Panini Donruss" oninput="updateSearchLinks()" />
               </div>
               <div class="form-group">
                 <label for="card_number">Card #</label>
-                <input type="text" id="card_number" placeholder="e.g. 269" />
+                <input type="text" id="card_number" placeholder="e.g. 327" oninput="updateSearchLinks()" />
               </div>
             </div>
             <div class="grid-2" style="margin-top:.5rem">
@@ -94,6 +86,7 @@
             </div>
           </div>
 
+          <!-- Your Costs -->
           <div class="panel">
             <div class="panel-title"><span class="icon icon-teal">💰</span> Your Costs</div>
             <div class="form-group">
@@ -113,15 +106,49 @@
               </div>
             </div>
             <div class="divider"></div>
-            <div class="form-group">
+            <div class="form-group" style="margin-bottom:0">
               <label for="selling_fee_pct">Selling Fee % <span class="label-hint">(eBay ≈ 12.9%)</span></label>
               <input type="number" id="selling_fee_pct" min="0" max="100" step="0.1" value="12.9" />
             </div>
           </div>
 
+          <!-- Search Links -->
+          <div class="panel">
+            <div class="panel-title"><span class="icon icon-yellow">🔍</span> Find Sold Comps</div>
+            <p class="section-note" style="margin-bottom:.875rem">Open a search, find recent sold listings, copy the prices, then paste them below.</p>
+            <div class="search-links-row">
+              <a id="link-ebay"   class="search-link-btn" href="https://www.ebay.com/sch/i.html?_nkw=sports+card+PSA&LH_Sold=1&LH_Complete=1&_sop=13" target="_blank" rel="noopener">eBay Sold ↗</a>
+              <a id="link-130pt" class="search-link-btn" href="https://www.130point.com/" target="_blank" rel="noopener">130point ↗</a>
+              <a id="link-google" class="search-link-btn" href="https://www.google.com/search?q=sports+card+PSA+sold" target="_blank" rel="noopener">Google ↗</a>
+            </div>
+            <p class="fs-sm text-muted" style="margin-top:.75rem">Links update automatically as you type card details above.</p>
+          </div>
+
+          <!-- Sold Comps Input -->
+          <div class="panel">
+            <div class="panel-title"><span class="icon icon-green">📊</span> Enter Sold Comps</div>
+            <p class="section-note" style="margin-bottom:.875rem">Paste sold prices separated by commas. Leave blank if you have no data for that grade.</p>
+            <div class="form-group">
+              <label for="comps_raw">Raw Sold Prices <span class="label-hint">(ungraded)</span></label>
+              <input type="text" id="comps_raw" placeholder="e.g. 85, 90, 88, 95" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="comps_psa8">PSA 8 Sold Prices</label>
+              <input type="text" id="comps_psa8" placeholder="e.g. 150, 160, 145" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="comps_psa9">PSA 9 Sold Prices</label>
+              <input type="text" id="comps_psa9" placeholder="e.g. 400, 420, 390, 410" autocomplete="off" />
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label for="comps_psa10">PSA 10 Sold Prices</label>
+              <input type="text" id="comps_psa10" placeholder="e.g. 1200, 1250, 1300" autocomplete="off" />
+            </div>
+          </div>
+
           <div class="btn-group">
             <button class="btn btn-primary" id="calc-btn" onclick="calculate()">
-              ⚡ Estimate &amp; Calculate
+              ⚡ Calculate
             </button>
             <button class="btn btn-success" onclick="addToWatchlist()">＋ Save to Watchlist</button>
             <button class="btn btn-outline"  onclick="resetForm()">↺ Reset</button>
@@ -135,15 +162,14 @@
           <!-- Idle placeholder -->
           <div class="results-placeholder" id="results-placeholder">
             <div class="placeholder-icon">🔍</div>
-            <p>Enter the card details and what you paid raw, then click <strong>Estimate &amp; Calculate</strong>.</p>
-            <p class="text-muted fs-sm" style="margin-top:.5rem">Live sold comps are fetched from eBay when API keys are configured. Otherwise estimates are shown clearly as estimates.</p>
+            <p>Enter card details, add sold comps, then click <strong>Calculate</strong>.</p>
+            <p class="text-muted fs-sm" style="margin-top:.5rem">All results are based only on the sold prices you enter — no fake data, no estimates.</p>
           </div>
 
           <!-- Loading state -->
           <div id="results-loading" style="display:none; flex-direction:column; gap:1.5rem; align-items:center; justify-content:center; min-height:400px; border:2px dashed var(--border); border-radius:var(--radius);">
             <div class="loading-spinner"></div>
-            <p class="text-muted" style="font-size:14px">Fetching sold comps…</p>
-            <p class="text-muted fs-sm">This can take up to 60 s when pulling live eBay data.</p>
+            <p class="text-muted" style="font-size:14px">Calculating…</p>
           </div>
 
           <!-- Results (shown after calculate) -->
@@ -233,7 +259,7 @@
         <table>
           <thead>
             <tr>
-              <th>Card</th><th>Sport</th><th>Raw Cost</th><th>Est. PSA 10</th>
+              <th>Card</th><th>Sport</th><th>Raw Cost</th><th>Best PSA 10</th>
               <th>Best Profit</th><th>Best ROI</th><th>Best Exit</th><th>Rec.</th><th></th>
             </tr>
           </thead>
@@ -243,129 +269,9 @@
     </div>
   </div>
 
-  <!-- ════════════════ SNIPE SEARCHES PAGE ════════════════ -->
-  <div class="page" id="page-snipe-searches">
-    <div class="page-intro">
-      <p>Create saved searches and the Snipe Finder will automatically scan eBay for raw listings that meet your profit thresholds. Market values are always sourced from real sold comps.</p>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title" style="justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:8px"><span class="icon icon-purple">🎯</span> Saved Searches</div>
-        <button class="btn btn-primary btn-sm" onclick="openCreateModal()">＋ New Search</button>
-      </div>
-      <div id="searches-empty" class="empty-state" style="display:none">
-        <div class="empty-icon">🔍</div>
-        <div class="empty-title">No saved searches yet</div>
-        <p class="text-muted">Create a search to start scanning for raw card buying opportunities.</p>
-      </div>
-      <div id="searches-list" class="search-list"></div>
-    </div>
-  </div>
-
-  <!-- ════════════════ SNIPE DEALS PAGE ════════════════ -->
-  <div class="page" id="page-snipe-deals">
-    <div class="page-intro">
-      <p>Raw cards found by your saved searches that pass your profit and ROI thresholds. All pricing uses median sold comps — never active listing prices.</p>
-    </div>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap">
-      <div class="filter-tabs">
-        <button class="filter-tab active" data-filter="ALL"   onclick="setDealsFilter('ALL')">All Deals</button>
-        <button class="filter-tab"        data-filter="BUY"   onclick="setDealsFilter('BUY')">BUY</button>
-        <button class="filter-tab"        data-filter="WATCH" onclick="setDealsFilter('WATCH')">WATCH</button>
-        <button class="filter-tab"        data-filter="PASS"  onclick="setDealsFilter('PASS')">PASS</button>
-      </div>
-      <button class="btn btn-outline btn-sm" onclick="loadDeals()">↺ Refresh</button>
-    </div>
-
-    <div id="deals-empty" class="empty-state-v2" style="display:none">
-      <div class="empty-icon">📡</div>
-      <div class="empty-title">No live deals yet</div>
-      <p class="text-muted fs-sm">Mock/estimated data is never shown here.</p>
-      <div class="api-hint">APIFY_TOKEN</div>
-      <div class="api-hint">SPORTSCARDSPRO_API_KEY</div>
-      <p class="text-muted fs-sm" style="margin-top:4px">Set one of these, then run a search.</p>
-    </div>
-
-    <div id="deals-grid" class="deal-cards-grid"></div>
-  </div>
-
 </main>
-
-<!-- ════════════════ SEARCH MODAL ════════════════ -->
-<div class="modal-overlay" id="search-modal" style="display:none" onclick="if(event.target===this)closeSearchModal()">
-  <div class="modal">
-    <div class="modal-title" id="modal-title">New Saved Search</div>
-    <form id="search-form" onsubmit="return false">
-      <div class="grid-2">
-        <div class="form-group" style="grid-column:1/-1">
-          <label for="sf-name">Search Name</label>
-          <input type="text" id="sf-name" placeholder="e.g. Mahomes Rookies Under $100" />
-        </div>
-        <div class="form-group">
-          <label for="sf-sport">Sport</label>
-          <select id="sf-sport">
-            <option value="">Any sport</option>
-            <option>Football</option><option>Basketball</option>
-            <option>Baseball</option><option>Soccer</option>
-            <option>Hockey</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="sf-frequency">Scan Frequency</label>
-          <select id="sf-frequency">
-            <option value="daily">Daily (06:00 UTC)</option>
-            <option value="hourly">Hourly</option>
-          </select>
-        </div>
-        <div class="form-group" style="grid-column:1/-1">
-          <label for="sf-players">Player Names <span class="label-hint">(comma-separated, leave blank for any)</span></label>
-          <input type="text" id="sf-players" placeholder="e.g. Patrick Mahomes, Josh Allen" />
-        </div>
-        <div class="form-group">
-          <label for="sf-year-min">Year Min</label>
-          <input type="number" id="sf-year-min" value="2015" min="1950" max="2030" />
-        </div>
-        <div class="form-group">
-          <label for="sf-year-max">Year Max</label>
-          <input type="number" id="sf-year-max" value="2024" min="1950" max="2030" />
-        </div>
-        <div class="form-group">
-          <label for="sf-max-price">Max Raw Price ($)</label>
-          <input type="number" id="sf-max-price" value="100" min="1" step="1" />
-        </div>
-        <div class="form-group">
-          <label for="sf-min-profit">Min Profit ($)</label>
-          <input type="number" id="sf-min-profit" value="0" step="1" />
-        </div>
-        <div class="form-group">
-          <label for="sf-min-roi">Min ROI (%)</label>
-          <input type="number" id="sf-min-roi" value="20" step="1" />
-        </div>
-        <div class="form-group">
-          <label for="sf-fee-pct">Selling Fee % <span class="label-hint">(eBay ≈ 12.9%)</span></label>
-          <input type="number" id="sf-fee-pct" value="12.9" step="0.1" />
-        </div>
-        <div class="form-group">
-          <label for="sf-grading">Grading Fee ($)</label>
-          <input type="number" id="sf-grading" value="25" step="1" />
-        </div>
-        <div class="form-group">
-          <label for="sf-shipping">Shipping to/from Grader ($)</label>
-          <input type="number" id="sf-shipping" value="15" step="1" />
-        </div>
-      </div>
-      <div class="btn-group" style="margin-top:1.5rem">
-        <button class="btn btn-primary" onclick="saveSearch()">Save Search</button>
-        <button class="btn btn-outline" type="button" onclick="closeSearchModal()">Cancel</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 <div class="toast-container" id="toast-container"></div>
 <script src="/static/js/app.js"></script>
-<script src="/static/js/snipe.js"></script>
 </body>
 </html>

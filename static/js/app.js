@@ -8,9 +8,7 @@ function showPage(name) {
   document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
   document.getElementById("page-" + name).classList.add("active");
   document.querySelector(`[data-tab="${name}"]`).classList.add("active");
-  if (name === "watchlist")      loadWatchlist();
-  if (name === "snipe-searches") loadSearches();
-  if (name === "snipe-deals")    loadDeals();
+  if (name === "watchlist") loadWatchlist();
 }
 
 // ── Format helpers ─────────────────────────────────────
@@ -38,11 +36,41 @@ function toggleSection(btn) {
   btn.classList.toggle("open", !open);
 }
 
+// ── Search links (auto-update from card details) ───────
+function updateSearchLinks() {
+  const player  = (document.getElementById("player_name")?.value || "").trim();
+  const year    = (document.getElementById("year")?.value || "").trim();
+  const setName = (document.getElementById("set_name")?.value || "").trim();
+  const num     = (document.getElementById("card_number")?.value || "").trim();
+
+  const parts = [year, player, setName, num ? "#" + num : ""].filter(Boolean);
+  const q     = parts.join(" ");
+
+  const ebayEl   = document.getElementById("link-ebay");
+  const pt130El  = document.getElementById("link-130pt");
+  const googleEl = document.getElementById("link-google");
+  if (!ebayEl) return;
+
+  if (!q) {
+    ebayEl.href   = "https://www.ebay.com/sch/i.html?_nkw=sports+card+PSA&LH_Sold=1&LH_Complete=1&_sop=13";
+    pt130El.href  = "https://www.130point.com/";
+    googleEl.href = "https://www.google.com/search?q=sports+card+PSA+sold";
+    return;
+  }
+
+  const gradeQ = q + " PSA";
+  ebayEl.href   = "https://www.ebay.com/sch/i.html?" +
+    new URLSearchParams({ _nkw: gradeQ, LH_Sold: "1", LH_Complete: "1", _sop: "13" });
+  pt130El.href  = "https://www.130point.com/sales/?" + new URLSearchParams({ q });
+  googleEl.href = "https://www.google.com/search?" + new URLSearchParams({ q: gradeQ + " sold" });
+}
+
 // ── Calculate ──────────────────────────────────────────
 async function calculate() {
   const fields = [
     "player_name","year","set_name","card_number","sport","variation",
     "raw_price","grading_cost","shipping_fees","selling_fee_pct",
+    "comps_raw","comps_psa8","comps_psa9","comps_psa10",
   ];
   const data = {};
   for (const f of fields) {
@@ -55,7 +83,7 @@ async function calculate() {
 
   const btn = document.getElementById("calc-btn");
   btn.disabled  = true;
-  btn.innerHTML = '<span class="spinner"></span> Fetching comps…';
+  btn.innerHTML = "Calculating…";
 
   document.getElementById("results-placeholder").style.display = "none";
   document.getElementById("results-loading").style.display     = "flex";
@@ -63,7 +91,7 @@ async function calculate() {
 
   try {
     const res    = await fetch("/api/calculate", {
-      method:"POST", headers:{"Content-Type":"application/json"},
+      method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify(data),
     });
     const result = await res.json();
@@ -76,7 +104,7 @@ async function calculate() {
     document.getElementById("results-placeholder").style.display = "flex";
   } finally {
     btn.disabled  = false;
-    btn.innerHTML = "⚡ Estimate &amp; Calculate";
+    btn.innerHTML = "⚡ Calculate";
   }
 }
 
@@ -85,15 +113,11 @@ function renderResults(r, data) {
   document.getElementById("results-loading").style.display  = "none";
   document.getElementById("results-content").style.display = "flex";
 
-  const { results, best, recommendation, prices, costs,
-          has_real_data, break_even_grade, break_even_label,
-          cardgrade_score, set_risk, signal } = r;
-
   renderSignalCard(r, data);
-  renderGradeChips(prices, results, best, has_real_data);
-  renderAnalysisTable(results, best, has_real_data, prices);
-  renderCompsSection(prices);
-  renderFormulas(results, costs);
+  renderGradeChips(r.prices, r.results, r.best, r.has_real_data);
+  renderAnalysisTable(r.results, r.best, r.has_real_data, r.prices);
+  renderCompsSection(r.prices);
+  renderFormulas(r.results, r.costs);
 }
 
 // ── Signal card ────────────────────────────────────────
@@ -102,12 +126,10 @@ function renderSignalCard(r, data) {
           break_even_grade, break_even_label,
           cardgrade_score: cg, set_risk, signal, prices } = r;
 
-  // CG Score ring
   const ring = document.getElementById("cg-ring");
   ring.className = `cg-ring ${cg.cls}`;
   document.getElementById("cg-score-num").textContent = has_real_data ? cg.score : "—";
 
-  // Rec pill
   const pill = document.getElementById("signal-rec-pill");
   const pillCls = {
     "Strong Buy":       "strong-buy",
@@ -118,7 +140,6 @@ function renderSignalCard(r, data) {
   pill.className   = `rec-pill-new ${pillCls}`;
   pill.textContent = recommendation;
 
-  // Subtitle: card name + CG label
   const parts     = [data.year, data.player_name].filter(Boolean).join(" ");
   const variation = data.variation && data.variation !== "Base" ? ` · ${data.variation}` : "";
   const cardTitle = (parts + (data.set_name ? ` – ${data.set_name}` : "")
@@ -126,7 +147,6 @@ function renderSignalCard(r, data) {
   document.getElementById("signal-sub").textContent  = escHtml(cardTitle);
   document.getElementById("signal-text").textContent = signal || "";
 
-  // ROI + profit on the right
   const roiEl  = document.getElementById("signal-roi-num");
   const profEl = document.getElementById("signal-profit-sub");
   if (has_real_data) {
@@ -136,10 +156,9 @@ function renderSignalCard(r, data) {
   } else {
     roiEl.textContent  = "—";
     roiEl.className    = "signal-roi-num text-muted";
-    profEl.textContent = "No live data";
+    profEl.textContent = "No comps entered";
   }
 
-  // Chips row
   const chips = [];
 
   if (has_real_data && break_even_label) {
@@ -149,11 +168,10 @@ function renderSignalCard(r, data) {
     </span>`);
   }
 
-  // Confidence across grades
   const liveGrades = ["raw","psa8","psa9","psa10"].filter(k => prices[k].is_live && prices[k].comp_count > 0);
   if (liveGrades.length) {
     const totalComps = liveGrades.reduce((s,k) => s + prices[k].comp_count, 0);
-    chips.push(`<span class="chip chip-accent">${totalComps} sold comps</span>`);
+    chips.push(`<span class="chip chip-accent">${totalComps} sold comp${totalComps !== 1 ? "s" : ""} entered</span>`);
   }
 
   if (has_real_data && cg.score > 0) {
@@ -166,7 +184,7 @@ function renderSignalCard(r, data) {
   }
 
   if (!has_real_data) {
-    chips.push(`<span class="chip chip-yellow">⚠ No verified comps found — connect APIFY_TOKEN or SPORTSCARDSPRO_API_KEY</span>`);
+    chips.push(`<span class="chip chip-yellow">⚠ No verified comps entered — add sold prices above</span>`);
   }
 
   document.getElementById("signal-chips").innerHTML = chips.join("");
@@ -185,11 +203,11 @@ function renderGradeChips(prices, results, best, hasRealData) {
     const r      = results[key];
     const isLive = g.is_live && g.comp_count >= 1;
     const dot    = isLive
-      ? `<span class="live-dot" title="${g.comp_count} sold comps"></span>`
-      : `<span class="est-dot" title="Estimated"></span>`;
+      ? `<span class="live-dot" title="${g.comp_count} comps"></span>`
+      : `<span class="est-dot" title="No comps entered"></span>`;
     const isBest = key === best.key && hasRealData && isLive;
     const border = isBest ? "style='border-color:var(--accent)'" : "";
-    const priceHtml  = isLive
+    const priceHtml = isLive
       ? `<div class="grade-chip-value ${valCls}">${fmt$(g.median_price)}</div>`
       : `<div class="grade-chip-value text-muted" style="font-size:11px">No comps</div>`;
     const profitHtml = isLive
@@ -239,73 +257,47 @@ function renderAnalysisTable(results, best, hasRealData, prices) {
 
 // ── Comps section (expandable) ─────────────────────────
 function renderCompsSection(prices) {
-  const gradeOrder = ["raw","psa8","psa9","psa10"];
+  const gradeOrder  = ["raw","psa8","psa9","psa10"];
   const gradeLabels = { raw:"Raw", psa8:"PSA 8", psa9:"PSA 9", psa10:"PSA 10" };
   let html = "";
 
   for (const key of gradeOrder) {
     const g      = prices[key];
     const isLive = g.is_live && g.comp_count >= 1;
-    const srcBadge = isLive
-      ? sourceBadge(g.source_name)
-      : `<span class="est-badge">~ Est</span>`;
 
     if (!isLive) {
       html += `<div class="comp-grade-section">
         <div class="comp-grade-label">${gradeLabels[key]}</div>
-        <div class="no-comps-msg">No verified comps found.</div>
+        <div class="no-comps-msg">No verified comps entered.</div>
       </div>`;
       continue;
     }
 
-    const realComps = (g.comps || []).filter(c => c.price > 0 && !c.title.startsWith("[estimated]"));
-    if (!realComps.length) {
-      html += `<div class="comp-grade-section">
-        <div class="comp-grade-label">${gradeLabels[key]} ${srcBadge}</div>
-        <div class="no-comps-msg">No live sold comps found.</div>
-      </div>`;
-      continue;
-    }
-
-    const rows = realComps.map(c => `<tr>
-      <td>${c.url
-        ? `<a href="${c.url}" target="_blank" rel="noopener" class="comp-link">${escHtml(truncate(c.title,55))}</a>`
-        : escHtml(truncate(c.title,55))}</td>
-      <td class="fw-bold">${fmt$(c.price)}</td>
-      <td class="text-muted">${c.date ? c.date.slice(0,10) : "—"}</td>
-      <td class="text-muted">${escHtml(g.source_name || "—")}</td>
-    </tr>`).join("");
+    // User-entered comps: show compact stats + price list
+    const comps  = (g.comps || []).filter(c => c.price > 0);
+    const prices_list = comps.map(c => fmt$(c.price)).join(" · ");
+    const hi = fmt$(g.high_price || comps[comps.length - 1]?.price || 0);
+    const lo = fmt$(g.low_price  || comps[0]?.price || 0);
 
     html += `<div class="comp-grade-section">
       <div class="comp-grade-label">
-        ${gradeLabels[key]} ${srcBadge}
+        ${gradeLabels[key]}
+        <span class="source-badge source-scp">User Entered</span>
         <span class="comp-count">${g.comp_count} comp${g.comp_count !== 1 ? "s" : ""}</span>
-        ${g.date_range && g.date_range !== "—" ? `<span class="text-muted fs-sm">${escHtml(g.date_range)}</span>` : ""}
       </div>
-      <table class="comp-table">
-        <thead><tr><th>Title</th><th>Sold</th><th>Date</th><th>Source</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div class="user-comps-stats">
+        <span>Median <strong>${fmt$(g.median_price)}</strong></span>
+        <span class="text-muted">·</span>
+        <span>Range <strong>${lo} – ${hi}</strong></span>
+        <span class="text-muted">·</span>
+        <span class="confidence-badge ${confCls(g.confidence)}">${capFirst(g.confidence)} confidence</span>
+      </div>
+      <div class="user-comps-prices">${prices_list}</div>
     </div>`;
   }
 
   document.getElementById("comps-by-grade").innerHTML = html ||
-    `<div class="text-muted fs-sm">No comps available.</div>`;
-}
-
-function sourceBadge(name) {
-  if (!name) return "";
-  const n = name.toLowerCase();
-  if (n.includes("ebay") && !n.includes("mock") && !n.includes("est")) {
-    return `<span class="source-badge source-live">Live eBay</span>`;
-  }
-  if (n.includes("sportscardspro") || n.includes("scp")) {
-    return `<span class="source-badge source-scp">SportsCardsPro</span>`;
-  }
-  if (n.includes("mock") || n.includes("estimated")) {
-    return `<span class="source-badge source-demo">Estimated</span>`;
-  }
-  return `<span class="source-badge source-live">${escHtml(name)}</span>`;
+    `<div class="text-muted fs-sm">No comps entered.</div>`;
 }
 
 // ── Formulas (expandable) ──────────────────────────────
@@ -443,25 +435,5 @@ function resetForm() {
   document.getElementById("results-placeholder").style.display = "flex";
   document.getElementById("results-loading").style.display     = "none";
   document.getElementById("results-content").style.display     = "none";
+  updateSearchLinks();
 }
-
-// ── Provider status check ───────────────────────────────
-async function checkProviderStatus() {
-  try {
-    const s   = await (await fetch("/api/provider-status")).json();
-    const bar = document.getElementById("provider-bar");
-    if (!bar) return;
-    if (!s.any_configured) {
-      bar.style.display = "flex";
-      const parts = [];
-      if (!s.apify_configured)         parts.push("APIFY_TOKEN");
-      if (!s.sportscardspro_configured) parts.push("SPORTSCARDSPRO_API_KEY");
-      document.getElementById("provider-bar-keys").textContent =
-        "Set " + parts.join(" or ") + " to fetch real sold comps.";
-    } else {
-      bar.style.display = "none";
-    }
-  } catch { /* ignore — server may not be ready yet */ }
-}
-// Run immediately on page load
-checkProviderStatus();

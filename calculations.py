@@ -62,7 +62,7 @@ def cardgrade_score(
 def _short_signal(recommendation: str, best_roi: float,
                   confidence: str, break_even: str) -> str:
     if recommendation == "Insufficient Data":
-        return "Connect APIFY_TOKEN or SPORTSCARDSPRO_API_KEY to get a real signal."
+        return "Enter sold comps in the boxes above to get a real signal."
     if recommendation == "Strong Buy":
         if confidence == "high":
             return f"High-confidence — {best_roi:.0f}% ROI at PSA 9 or better."
@@ -139,8 +139,7 @@ def calculate_profits(
 
     if not real_data:
         recommendation = "Insufficient Data"
-        why = ("No verified comps found. Connect APIFY_TOKEN or "
-               "SPORTSCARDSPRO_API_KEY to fetch real sold data.")
+        why = "No verified comps entered. Add sold prices in the comp boxes above to calculate profit and ROI."
     else:
         # BUY = profitable at PSA 9 or PSA 8 with real comps and meaningful ROI
         # WATCH = profitable only at PSA 10 (gem-grade requirement)
