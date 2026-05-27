@@ -83,13 +83,15 @@ function updateCompLinks() {
   }
 }
 
-// ── Lookback-window parser helpers ─────────────────────
+// ── Parser helpers ─────────────────────────────────────
 const _BULK_EXCLUDE = ["lot of"," lot ","lots of","reprint","custom card",
                        "fake ","proxy","redemption","blank back","commemorative"];
 
 const _OTHER_GRADER_PAT = /\b(bgs|sgc|cgc|beckett|hga|gma)\b/i;
 const _AUTO_KW_PAT      = /\b(auto|autograph|signed)\b/i;
 const _SHIP_KW_PAT      = /\bshipping\b|\bpostage\b|\bhandling\b/i;
+// eBay condition strings between title and price — transparent, don't reset grade context
+const _EBAY_COND_PAT    = /^(?:new(?:\s*\([^)]{0,50}\))?|pre.?owned|used|brand\s+new|like\s+new|very\s+good\+?|good\+?|fair|acceptable|for\s+parts|not\s+working|open\s+box|seller\s+refurbished|graded|ungraded)\s*$/i;
 const _GRADE10_PAT      = /\bpsa\s*(?:gem\s*mint\s*)?10\b|\bgem\s*mt\s*10\b|\bgrade\s*10\b/i;
 const _GRADE9_PAT       = /\bpsa\s*9(?!\d)|\bmint\s*9\b|\bgrade\s*9\b/i;
 const _GRADE8_PAT       = /\bpsa\s*8(?!\d)|\bnm.?mt\s*8\b|\bgrade\s*8\b/i;
@@ -112,16 +114,16 @@ function _extractDollarPrice(line) {
 }
 
 function _detectGrade(ll) {
+  // Returns 'psa10'/'psa9'/'psa8'/'SKIP'/null
   if (_OTHER_GRADER_PAT.test(ll)) return "SKIP";
   const isAutoCard = (document.getElementById("variation")?.value || "").toLowerCase().includes("auto");
   if (!isAutoCard && _AUTO_KW_PAT.test(ll)) return "SKIP";
   if (_BULK_EXCLUDE.some(kw => ll.includes(kw))) return "SKIP";
-  if (_SHIP_KW_PAT.test(ll)) return "SKIP";
   if (_GRADE10_PAT.test(ll)) return "psa10";
   if (_GRADE9_PAT.test(ll))  return "psa9";
   if (_GRADE8_PAT.test(ll))  return "psa8";
-  if (_ANY_PSA_PAT.test(ll)) return "SKIP"; // PSA 7/6/5 etc — skip unknown grades
-  return null; // no grade keyword → raw candidate
+  if (_ANY_PSA_PAT.test(ll)) return "SKIP"; // PSA 7/6/5 etc
+  return null;
 }
 
 function _isBarePriceLine(line) {
@@ -131,22 +133,32 @@ function _isBarePriceLine(line) {
 }
 
 function _isTrivialLine(ll) {
-  const s = ll.replace(/\b(?:sold|for|free|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|pm|am|the|and|or)\b|\d+/gi, "").trim();
+  const s = ll
+    .replace(/\b(?:sold|for|free|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|pm|am|the|and|or|new|used|pre|owned|other|like|brand|very|good|fair)\b|\d+/gi, "")
+    .replace(/[^a-z]/gi, "");
   return s.length < 5;
 }
 
 function _parseBulkText(text) {
   const result = { raw: [], psa8: [], psa9: [], psa10: [] };
   const parsedComps = [];
-
   const lines = text.split(/\r?\n/);
-  let prevGrade    = null;
-  let prevGradeIdx = -10;
+  let prevGrade = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
     if (!line) continue;
     const ll = line.toLowerCase();
+
+    // Hard exclusions — skip line and reset grade context
+    if (_BULK_EXCLUDE.some(kw => ll.includes(kw))) { prevGrade = null; continue; }
+    const isAutoCard = (document.getElementById("variation")?.value || "").toLowerCase().includes("auto");
+    if (!isAutoCard && _AUTO_KW_PAT.test(ll)) { prevGrade = null; continue; }
+    if (_OTHER_GRADER_PAT.test(ll)) { prevGrade = null; continue; }
+
+    // Transparent status lines — skip without touching grade context
+    if (_SHIP_KW_PAT.test(ll)) continue;
+    if (_EBAY_COND_PAT.test(ll)) continue; // "New (Other)", "Pre-Owned", "Used" …
 
     const gradeOnLine = _detectGrade(ll);
     if (gradeOnLine === "SKIP") { prevGrade = null; continue; }
@@ -156,11 +168,10 @@ function _parseBulkText(text) {
       const bare = _isBarePriceLine(line);
       let grade;
       if (gradeOnLine) {
-        grade         = gradeOnLine;
-        prevGrade     = gradeOnLine;
-        prevGradeIdx  = i;
-      } else if (bare && prevGrade !== null && (i - prevGradeIdx) <= 2) {
-        grade = prevGrade; // eBay multi-line: grade on title, price on next line
+        grade     = gradeOnLine;
+        prevGrade = gradeOnLine;
+      } else if (bare && prevGrade !== null) {
+        grade = prevGrade; // bare price borrows grade from previous title
       } else {
         grade = "raw";
         if (!bare) prevGrade = null;
@@ -169,10 +180,9 @@ function _parseBulkText(text) {
       parsedComps.push({ grade, price, line: line.slice(0, 80) });
     } else {
       if (gradeOnLine) {
-        prevGrade    = gradeOnLine;
-        prevGradeIdx = i;
+        prevGrade = gradeOnLine;
       } else if (!_isTrivialLine(ll)) {
-        prevGrade = null; // new substantive listing title resets context
+        prevGrade = null; // substantive listing title resets context
       }
     }
   }
@@ -282,7 +292,6 @@ async function importBulkComps() {
   const { result, parsedComps } = _parseBulkText(text);
   _parsedComps = parsedComps;
 
-  // Check if anything was found before deciding to calculate
   const totalFound = Object.values(result).reduce((s, arr) => s + arr.length, 0);
   if (!totalFound) {
     _applyResultToUI(result, parsedComps, false);
@@ -290,7 +299,13 @@ async function importBulkComps() {
     return;
   }
 
-  _applyResultToUI(result, parsedComps, /*autoCalc=*/true);
+  // Show preview — user reviews and removes bad comps, then clicks Calculate
+  _applyResultToUI(result, parsedComps, /*autoCalc=*/false);
+  showToast(`${totalFound} comp${totalFound !== 1 ? "s" : ""} parsed — review below, then click ⚡ Calculate`, "success");
+
+  // Scroll the preview into view
+  const preview = document.getElementById("comp-preview-area");
+  if (preview) preview.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 async function importFromClipboard() {

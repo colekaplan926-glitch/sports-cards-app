@@ -499,8 +499,18 @@ _GRADE9_RE   = re.compile(r'\bpsa\s*9(?!\d)|\bmint\s*9\b|\bgrade\s*9\b', re.I)
 _GRADE8_RE   = re.compile(r'\bpsa\s*8(?!\d)|\bnm.?mt\s*8\b|\bgrade\s*8\b', re.I)
 _ANY_PSA_RE  = re.compile(r'\bpsa\s*\d+', re.I)
 _SHIP_RE     = re.compile(r'\bshipping\b|\bpostage\b|\bhandling\b', re.I)
+
+# eBay sold-listing condition strings that appear between the title and price.
+# These must NOT reset grade context — they are metadata for the same listing.
+_EBAY_COND_RE = re.compile(
+    r'^(?:new(?:\s*\([^)]{0,50}\))?|pre.?owned|used|brand\s+new|like\s+new|'
+    r'very\s+good\+?|good\+?|fair|acceptable|for\s+parts|not\s+working|'
+    r'open\s+box|seller\s+refurbished|graded|ungraded)\s*$',
+    re.I)
+
 _TRIVIAL_RE  = re.compile(
-    r'\b(?:sold|for|free|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|pm|am|the|and|or)\b|\d+',
+    r'\b(?:sold|for|free|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|pm|am|'
+    r'the|and|or|new|used|pre|owned|other|like|brand|very|good|fair)\b|\d+',
     re.I)
 _BULK_EXCLUDE = ["lot of", " lot ", "lots of", "reprint", "custom card",
                  "fake ", "proxy", "redemption", "blank back", "commemorative"]
@@ -554,12 +564,19 @@ def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
     """
     Parse a block of pasted sold-listing text → {grade: [prices]}.
 
-    Algorithm: line-by-line with a grade look-back window.
-    - Lines with both grade and price → classify from that line.
-    - Bare price-only lines (e.g. "$430") → borrow grade from the most recent
-      grade-bearing line within 2 lines, so eBay's multi-line format works.
-    - Substantive non-grade, non-price lines (listing titles for raw cards)
-      reset the grade context so PSA grades never leak across listings.
+    Each line is independent. Grade classification:
+    - Line contains PSA 10 / Gem Mint 10 / Grade 10  → psa10
+    - Line contains PSA 9 / Mint 9 / Grade 9          → psa9
+    - Line contains PSA 8 / NM-MT 8 / Grade 8         → psa8
+    - Line has no grade keyword                        → raw candidate
+
+    eBay multi-line format (title → condition → price on separate lines):
+    - eBay condition strings ("New (Other)", "Pre-Owned", "Used" …) are
+      transparent — they do NOT reset grade context.
+    - A bare price-only line ("$430") borrows grade from the most recent
+      grade-bearing line, as long as no substantive title has intervened.
+    - A substantive non-grade line (raw card title) resets grade context so
+      PSA grades never leak into a following raw-card price.
     """
     ctx = ctx or {}
     variation    = (ctx.get("variation") or "").lower()
@@ -567,30 +584,30 @@ def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
     result       = {g: [] for g in ("raw", "psa8", "psa9", "psa10")}
 
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    prev_grade = None
 
-    prev_grade     = None
-    prev_grade_idx = -10
-
-    for i, line in enumerate(lines):
+    for line in lines:
         ll = line.lower()
 
-        # ── Exclusions ────────────────────────────────────────────────────────
+        # ── Hard exclusions — skip line and reset grade context ───────────────
         if any(kw in ll for kw in _BULK_EXCLUDE):
-            prev_grade = None
-            continue
+            prev_grade = None; continue
         if not is_auto_card and re.search(r'\b(auto|autograph|signed)\b', ll):
-            prev_grade = None
-            continue
+            prev_grade = None; continue
         if _OTHER_GRADER.search(ll):
-            prev_grade = None
-            continue
+            prev_grade = None; continue
+
+        # ── Transparent status lines — skip without touching grade context ────
+        # Shipping lines and eBay condition strings (New (Other), Pre-Owned …)
+        # are metadata for the same listing, not new listing titles.
         if _SHIP_RE.search(ll):
-            continue                        # shipping line — preserve grade context
+            continue
+        if _EBAY_COND_RE.match(ll):
+            continue
 
         grade_on_line = _detect_grade_key(ll)
         if grade_on_line == "SKIP":
-            prev_grade = None
-            continue
+            prev_grade = None; continue
 
         price = _extract_dollar_price(line)
 
@@ -598,16 +615,14 @@ def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
             bare = _is_bare_price_line(line)
 
             if grade_on_line:
-                # Grade and price on the same line — definitive classification
-                grade = grade_on_line
-                prev_grade     = grade_on_line
-                prev_grade_idx = i
-            elif bare and prev_grade is not None and (i - prev_grade_idx) <= 2:
-                # Bare price line (just "$430") — borrow grade from recent context
+                # Grade and price on the same line — definitive
+                grade      = grade_on_line
+                prev_grade = grade_on_line
+            elif bare and prev_grade is not None:
+                # Bare price line — borrow grade from previous listing title
                 grade = prev_grade
-                # Keep prev_grade so the next bare price can also borrow it
             else:
-                # Mixed non-grade line with a price → raw; reset context
+                # No grade found, non-bare line → raw; reset context
                 grade = "raw"
                 if not bare:
                     prev_grade = None
@@ -615,12 +630,11 @@ def _parse_bulk_text(text: str, ctx: dict = None) -> dict:
             result[grade].append(price)
 
         else:
-            # No price on this line
+            # Line has no price
             if grade_on_line:
-                prev_grade     = grade_on_line
-                prev_grade_idx = i
+                prev_grade = grade_on_line
             elif not _is_trivial_line(ll):
-                # Substantive line with no grade and no price → new listing starting
+                # Substantive title line with no grade → new raw listing starting
                 prev_grade = None
 
     return result

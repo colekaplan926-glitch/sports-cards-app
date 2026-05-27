@@ -198,13 +198,13 @@ class TestLookbackWindow:
         assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
         assert r["raw"]   == [],       f"raw should be empty: {r['raw']}"
 
-    def test_lookback_does_not_reach_beyond_two_lines(self):
-        """3+ lines between grade and price → context lost → goes to raw."""
+    def test_sold_and_date_lines_dont_reset_context(self):
+        """Sold + date between grade and bare price → grade context preserved."""
         text = "2017 Mahomes PSA 10\nSold\nOct 2024\n$1245"
         r = _parse_bulk_text(text)
-        # 3 lines away — context should be reset, price goes raw
-        assert r["psa10"] == [], f"psa10 should be empty: {r['psa10']}"
-        assert r["raw"]   == [1245.0], f"raw: {r['raw']}"
+        # "Sold" and "Oct 2024" are trivial → grade context not reset
+        assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
+        assert r["raw"]   == [],       f"raw should be empty: {r['raw']}"
 
     def test_multiline_psa9_then_psa10(self):
         """Two consecutive eBay-style multi-line entries, grades stay separate."""
@@ -217,6 +217,162 @@ class TestLookbackWindow:
         r = _parse_bulk_text(text)
         assert r["psa9"]  == [430.0],  f"psa9: {r['psa9']}"
         assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
+
+
+class TestEbayMultilineFormat:
+    """Parser must handle real eBay copy-paste: title / condition / price / sold-date."""
+
+    # eBay layout: listing title (with grade) → condition → price → "Sold · date"
+    # "New (Other)" and "Pre-Owned" MUST NOT reset grade context.
+
+    def test_mahomes_donruss_all_grades(self):
+        text = (
+            "2017 Panini Donruss Patrick Mahomes #327 Rookie PSA 10 Gem Mint\n"
+            "New (Other)\n"
+            "$1,245.00\n"
+            "Sold  Jan 15, 2024\n"
+            "\n"
+            "2017 Panini Donruss Patrick Mahomes #327 Rookie PSA 9\n"
+            "New (Other)\n"
+            "$430.00\n"
+            "Sold  Dec 8, 2023\n"
+            "\n"
+            "2017 Panini Donruss Patrick Mahomes #327 Rookie PSA 8\n"
+            "New (Other)\n"
+            "$198.00\n"
+            "Sold  Nov 22, 2023\n"
+            "\n"
+            "2017 Panini Donruss Patrick Mahomes #327 Rookie\n"
+            "Pre-Owned\n"
+            "$87.50\n"
+            "Sold  Nov 5, 2023"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [1245.0], f"psa10: {r['psa10']}"
+        assert r["psa9"]  == [430.0],  f"psa9: {r['psa9']}"
+        assert r["psa8"]  == [198.0],  f"psa8: {r['psa8']}"
+        assert r["raw"]   == [87.5],   f"raw: {r['raw']}"
+
+    def test_herbert_prizm_ebay_format(self):
+        text = (
+            "2020 Panini Prizm Justin Herbert #325 Rookie PSA 10 Gem Mint\n"
+            "New (Other)\n"
+            "$1,199.00\n"
+            "Sold  Feb 1, 2024\n"
+            "\n"
+            "2020 Panini Prizm Justin Herbert #325 Rookie PSA 9\n"
+            "New (Other)\n"
+            "$425.00\n"
+            "Sold  Jan 20, 2024\n"
+            "\n"
+            "2020 Panini Prizm Justin Herbert #325 Rookie\n"
+            "Pre-Owned\n"
+            "$142.00\n"
+            "Sold  Jan 5, 2024"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [1199.0], f"psa10: {r['psa10']}"
+        assert r["psa9"]  == [425.0],  f"psa9: {r['psa9']}"
+        assert r["psa8"]  == [],       f"psa8 should be empty"
+        assert r["raw"]   == [142.0],  f"raw: {r['raw']}"
+        # Year and card number must not appear as prices
+        assert 2020.0 not in r["raw"], "2020 must not be a price"
+        assert 325.0  not in r["raw"], "#325 must not be a price"
+
+    def test_edwards_prizm_basketball(self):
+        text = (
+            "2020-21 Panini Prizm Anthony Edwards #258 Rookie PSA 10 Gem Mint\n"
+            "New (Other)\n"
+            "$874.00\n"
+            "Sold  Mar 1, 2024\n"
+            "\n"
+            "2020-21 Panini Prizm Anthony Edwards #258 Rookie PSA 9\n"
+            "New (Other)\n"
+            "$178.00\n"
+            "Sold  Feb 15, 2024\n"
+            "\n"
+            "2020-21 Panini Prizm Anthony Edwards #258 Rookie\n"
+            "Pre-Owned\n"
+            "$54.00\n"
+            "Sold  Feb 3, 2024"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [874.0],  f"psa10: {r['psa10']}"
+        assert r["psa9"]  == [178.0],  f"psa9: {r['psa9']}"
+        assert r["raw"]   == [54.0],   f"raw: {r['raw']}"
+        assert 258.0 not in r["raw"], "#258 must not be a price"
+
+    def test_de_la_cruz_topps_chrome_baseball(self):
+        text = (
+            "2024 Topps Chrome Elly De La Cruz #44 Rookie PSA 10 Gem Mint\n"
+            "New (Other)\n"
+            "$94.00\n"
+            "Sold  Apr 5, 2024\n"
+            "\n"
+            "2024 Topps Chrome Elly De La Cruz #44 Rookie PSA 9\n"
+            "New (Other)\n"
+            "$41.00\n"
+            "Sold  Apr 2, 2024\n"
+            "\n"
+            "2024 Topps Chrome Elly De La Cruz #44 Rookie\n"
+            "Pre-Owned\n"
+            "$17.50\n"
+            "Sold  Mar 28, 2024"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [94.0],   f"psa10: {r['psa10']}"
+        assert r["psa9"]  == [41.0],   f"psa9: {r['psa9']}"
+        assert r["raw"]   == [17.5],   f"raw: {r['raw']}"
+        assert 44.0  not in r["raw"], "#44 must not be a price"
+        assert 2024.0 not in r["raw"], "2024 must not be a price"
+
+    def test_wembanyama_prizm_basketball(self):
+        text = (
+            "2023-24 Panini Prizm Victor Wembanyama #136 Rookie PSA 10 Gem Mint\n"
+            "New (Other)\n"
+            "$1,389.00\n"
+            "Sold  May 1, 2024\n"
+            "\n"
+            "2023-24 Panini Prizm Victor Wembanyama #136 Rookie PSA 9\n"
+            "New (Other)\n"
+            "$478.00\n"
+            "Sold  Apr 20, 2024\n"
+            "\n"
+            "2023-24 Panini Prizm Victor Wembanyama #136 Rookie\n"
+            "Pre-Owned\n"
+            "$173.00\n"
+            "Sold  Apr 10, 2024"
+        )
+        r = _parse_bulk_text(text)
+        assert r["psa10"] == [1389.0], f"psa10: {r['psa10']}"
+        assert r["psa9"]  == [478.0],  f"psa9: {r['psa9']}"
+        assert r["raw"]   == [173.0],  f"raw: {r['raw']}"
+        assert 136.0 not in r["raw"], "#136 must not be a price"
+
+    def test_no_price_duplication_across_buckets(self):
+        """Each price must appear in exactly one bucket."""
+        text = (
+            "2020 Herbert Prizm PSA 10\nNew (Other)\n$1,199.00\nSold Jan 2024\n"
+            "2020 Herbert Prizm PSA 9\nNew (Other)\n$425.00\nSold Jan 2024\n"
+            "2020 Herbert Prizm Raw\nPre-Owned\n$142.00\nSold Jan 2024"
+        )
+        r = _parse_bulk_text(text)
+        all_prices = r["raw"] + r["psa8"] + r["psa9"] + r["psa10"]
+        assert len(all_prices) == len(set(all_prices)), "Duplicate prices across buckets"
+        assert 1199.0 not in r["raw"],  "$1199 must not be in raw"
+        assert 425.0  not in r["raw"],  "$425 must not be in raw"
+        assert 1199.0 not in r["psa9"], "$1199 must not be in psa9"
+
+    def test_ebay_condition_variants(self):
+        """Various eBay condition strings must not reset grade context."""
+        for cond in ["New (Other)", "Pre-Owned", "Used", "Brand New", "Like New",
+                     "Very Good", "Good", "Fair", "Open Box"]:
+            text = f"2020 Herbert PSA 10\n{cond}\n$1,199.00"
+            r = _parse_bulk_text(text)
+            assert r["psa10"] == [1199.0], \
+                f'Condition "{cond}" incorrectly reset grade context: {r}'
+            assert r["raw"] == [], \
+                f'Condition "{cond}" caused price to go to raw: {r}'
 
 
 def pytest_approx(val, rel=1e-3):
