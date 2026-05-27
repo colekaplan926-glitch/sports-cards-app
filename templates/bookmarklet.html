@@ -7,6 +7,137 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .install-hero {
+      text-align: center;
+      padding: 2rem 0 1.5rem;
+    }
+    .install-hero h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+    .install-hero p {
+      color: var(--text-muted);
+      font-size: 14px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    .drag-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      background: rgba(108,99,255,0.06);
+      border: 2px dashed rgba(108,99,255,0.35);
+      border-radius: var(--radius);
+    }
+    .drag-zone-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .drag-arrow {
+      font-size: 1.5rem;
+      color: var(--text-muted);
+    }
+    .drag-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .drag-hint kbd {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-family: inherit;
+    }
+
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .step-row {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .step-row:last-child { border-bottom: none; }
+
+    .step-num-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .step-body { flex: 1; }
+    .step-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .step-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .step-desc kbd {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 11px;
+      font-family: inherit;
+    }
+    .step-desc strong { color: var(--text); }
+
+    .url-box {
+      margin-top: 1.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+    }
+    .url-box-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .url-box code {
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .alt-note {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 1rem;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
 
@@ -15,73 +146,79 @@
   <a href="/" class="btn btn-outline btn-sm">← Back to Calculator</a>
 </header>
 
-<main class="main-content" style="max-width:720px">
+<main class="main-content" style="max-width:640px">
   <div class="page active">
     <div class="panel">
-      <div class="panel-title"><span class="icon icon-yellow">📎</span> Comp Collector Bookmarklet</div>
-      <p class="text-muted" style="margin-bottom:1.5rem">
-        Install once — click it on any eBay Sold or 130point page to auto-send prices to CardGrade Pro.
-        No copy/paste required.
+
+      <div class="install-hero">
+        <div style="font-size:2.5rem;margin-bottom:.5rem">📎</div>
+        <h1>Comp Collector</h1>
+        <p>One-click tool that reads sold listings from eBay or 130point and sends them directly to CardGrade Pro — no copy/paste needed.</p>
+      </div>
+
+      <!-- Drag zone -->
+      <div class="drag-zone">
+        <div class="drag-zone-label">Step 1 — Install once</div>
+        <a id="bm-link" class="bookmarklet-drag-btn" href="#">📎 Comp Collector</a>
+        <div class="drag-arrow">↑ drag to your bookmarks bar</div>
+        <div class="drag-hint">
+          Show bar: Chrome <kbd>Ctrl+Shift+B</kbd> · Mac <kbd>⌘ Shift B</kbd>
+        </div>
+      </div>
+
+      <!-- Steps 2–4 -->
+      <div class="steps-list">
+
+        <div class="step-row">
+          <div class="step-num-circle">2</div>
+          <div class="step-body">
+            <div class="step-title">Open eBay Sold Listings</div>
+            <div class="step-desc">
+              In CardGrade Pro, enter your card details and click
+              <strong>Open eBay Sold ↗</strong>.
+              eBay will open in a new tab showing sold comps for that card across all grades.
+            </div>
+          </div>
+        </div>
+
+        <div class="step-row">
+          <div class="step-num-circle">3</div>
+          <div class="step-body">
+            <div class="step-title">Click "Comp Collector" in Your Bookmarks Bar</div>
+            <div class="step-desc">
+              While on the eBay (or 130point) sold results page, click the
+              <strong>Comp Collector</strong> bookmark.
+              It scans each listing title to detect the grade (PSA 10, PSA 9, etc.),
+              skips lots, reprints, and non-PSA listings, then shows you a confirmation
+              with a per-grade breakdown before sending.
+            </div>
+          </div>
+        </div>
+
+        <div class="step-row">
+          <div class="step-num-circle">4</div>
+          <div class="step-body">
+            <div class="step-title">Switch Back and Click Calculate</div>
+            <div class="step-desc">
+              Return to CardGrade Pro — comps are auto-filled into every grade bucket.
+              Review the comp preview, remove any outliers with <kbd>✕</kbd>, then click
+              <strong>⚡ Calculate</strong> for ROI, break-even, and a buy/pass recommendation.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="url-box">
+        <div class="url-box-label">Your App URL (baked into the bookmarklet)</div>
+        <code>{{ app_url }}</code>
+      </div>
+
+      <p class="alt-note">
+        Prefer to paste manually?
+        Use the <strong>Quick Import</strong> textarea on the calculator page — paste eBay sold listing text and click <strong>Parse Comps</strong>.
       </p>
 
-      <div class="bm-step">
-        <div class="bm-step-num">1</div>
-        <div>
-          <div class="bm-step-title">Drag this button to your Bookmarks Bar</div>
-          <div class="bm-step-sub" style="margin-bottom:.75rem">
-            Show bookmarks bar: Chrome <kbd>Ctrl+Shift+B</kbd> / Mac <kbd>⌘+Shift+B</kbd>
-          </div>
-          <a id="bm-link" class="bookmarklet-drag-btn" href="#">📎 Comp Collector</a>
-          <div class="bm-step-sub" style="margin-top:.5rem">
-            Drag the button above onto your bookmarks bar.
-          </div>
-        </div>
-      </div>
-
-      <div class="bm-step">
-        <div class="bm-step-num">2</div>
-        <div>
-          <div class="bm-step-title">Open a Sold Search from CardGrade Pro</div>
-          <div class="bm-step-sub">
-            Enter your card details, then click <strong>Open eBay ↗</strong> for any grade under
-            <em>Advanced search tools</em>.
-          </div>
-        </div>
-      </div>
-
-      <div class="bm-step">
-        <div class="bm-step-num">3</div>
-        <div>
-          <div class="bm-step-title">Click "Comp Collector" on the eBay / 130point page</div>
-          <div class="bm-step-sub">
-            Scans sold listings, filters out lots / reprints / wrong grades, and sends prices back automatically.
-          </div>
-        </div>
-      </div>
-
-      <div class="bm-step">
-        <div class="bm-step-num">4</div>
-        <div>
-          <div class="bm-step-title">Switch back and click Calculate</div>
-          <div class="bm-step-sub">
-            Comps are auto-filled. Click <strong>⚡ Calculate</strong> to see ROI and recommendation.
-          </div>
-        </div>
-      </div>
-
-      <div class="divider" style="margin:1.5rem 0"></div>
-
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem">
-        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">
-          Your App URL (baked into the bookmarklet)
-        </div>
-        <code style="font-size:13px;color:var(--accent)">{{ app_url }}</code>
-      </div>
-
-      <p class="text-muted fs-sm" style="margin-top:1rem">
-        Alternatively, use <strong>Quick Import</strong> on the main calculator page — copy sold listings
-        from eBay, paste once, and get instant analysis.
-      </p>
     </div>
   </div>
 </main>

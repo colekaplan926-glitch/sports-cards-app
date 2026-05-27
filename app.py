@@ -215,47 +215,89 @@ def _should_keep(comp: dict, grade: str, ctx: dict) -> tuple:
 
 
 # ── Bookmarklet JS ────────────────────────────────────────────────────────────
+# Runs entirely in the user's browser on eBay / 130point.
+# Detects grade from each listing title, groups by grade, POSTs all at once.
 
 _BOOKMARKLET_BODY = r"""
 var h=location.hostname,isE=h.includes('ebay.com'),is1=h.includes('130point.com');
-if(!isE&&!is1){alert('CardGrade Pro: Open this on an eBay Sold Listings or 130point.com page.');return;}
-var u=decodeURIComponent(location.href).toLowerCase();
-var g='raw';
-if(/psa[\s+]*(?:gem[\s+]*mint[\s+]*)?10/.test(u))g='psa10';
-else if(/psa[\s+]*9(?!\d)/.test(u))g='psa9';
-else if(/psa[\s+]*8(?!\d)/.test(u))g='psa8';
-var gl={raw:'Raw',psa8:'PSA 8',psa9:'PSA 9',psa10:'PSA 10'}[g];
+if(!isE&&!is1){alert('Comp Collector\n\nOpen this bookmarklet on an eBay Sold Listings or 130point.com page, then click it.');return;}
+function dg(t){
+  t=(t||'').toLowerCase();
+  if(/\b(bgs|sgc|cgc|beckett|hga|gma)\b/.test(t))return null;
+  if(/lot\s+of|\blots\b|reprint|proxy|redemption|blank\s+back|commemorative/.test(t))return null;
+  if(/\bauto(?:graph)?\b/.test(t))return null;
+  if(/\bpsa\s*(?:gem\s*mint\s*)?10\b|\bgem\s*mt\s*10\b|\bgrade\s*10\b/.test(t))return'psa10';
+  if(/\bpsa\s*9(?!\d)|\bmint\s*9\b|\bgrade\s*9\b/.test(t))return'psa9';
+  if(/\bpsa\s*8(?!\d)|\bnm.?mt\s*8\b|\bgrade\s*8\b/.test(t))return'psa8';
+  if(/\bpsa\s*\d+/.test(t))return null;
+  return'raw';
+}
+function gp(txt){var m=(txt||'').match(/\$?([\d,]+\.?\d*)/);return m?parseFloat(m[1].replace(/,/g,'')):0;}
 var cs=[];
-if(isE){document.querySelectorAll('li.s-item').forEach(function(el){
-  var t=el.querySelector('.s-item__title')||el.querySelector('span[role="heading"]');
-  var p=el.querySelector('.s-item__price');
-  var a=el.querySelector('a.s-item__link');
-  var d=el.querySelector('.s-item__caption--end')||el.querySelector('span.POSITIVE');
-  if(!t||!p)return;
-  var title=(t.textContent||'').trim();
-  if(!title||/shop on ebay/i.test(title))return;
-  var price=parseFloat((p.textContent||'').replace(/[^0-9.]/g,''));
-  if(!(price>0.5&&price<500000))return;
-  cs.push({title:title,price:price,url:a?a.href.split('?')[0]:'',date:d?(d.textContent||'').trim():''});
-});}else{document.querySelectorAll('table tbody tr').forEach(function(r){
-  var c=r.querySelectorAll('td');if(c.length<3)return;
-  var a=c[1]&&c[1].querySelector('a');
-  var title=a?(a.textContent||'').trim():(c[1]?(c[1].textContent||'').trim():'');
-  var price=parseFloat((c[c.length-1].textContent||'').replace(/[^0-9.]/g,''));
-  if(!(price>0.5&&price<500000))return;
-  cs.push({title:title,price:price,url:a?a.href:'',date:(c[0].textContent||'').trim()});
-});}
-if(!cs.length){alert('No sold listings found on this page.\n\nMake sure you are on a Sold/Completed listings page.');return;}
-if(!confirm('Send '+cs.length+' '+gl+' sold prices to CardGrade Pro?'))return;
+if(isE){
+  document.querySelectorAll('li.s-item').forEach(function(el){
+    var te=el.querySelector('.s-item__title,.s-item__title-wrapper span[role="heading"],.s-item__title span');
+    var pe=el.querySelector('.s-item__price');
+    var ae=el.querySelector('a.s-item__link');
+    var de=el.querySelector('.s-item__ended-date,.s-item__caption--end,.s-item__endedDate,span.POSITIVE');
+    if(!te||!pe)return;
+    var title=(te.textContent||'').trim();
+    if(!title||/shop on ebay/i.test(title)||title.length<10)return;
+    var grade=dg(title);
+    if(grade===null)return;
+    var price=gp(pe.textContent);
+    if(!(price>0.5&&price<500000))return;
+    cs.push({title:title.slice(0,120),price:price,grade:grade,
+             url:ae?ae.href.split('?')[0]:'',
+             date:de?(de.textContent||'').trim().replace(/^sold\s*/i,'').slice(0,20):'',
+             source:'ebay'});
+  });
+}else{
+  document.querySelectorAll('table tr').forEach(function(row){
+    var cols=row.querySelectorAll('td');
+    if(cols.length<2)return;
+    var ae=null;
+    for(var i=0;i<cols.length;i++){ae=cols[i].querySelector('a');if(ae&&ae.textContent.trim().length>10)break;ae=null;}
+    var title='';
+    if(ae){title=(ae.textContent||'').trim();}
+    else{for(var i=0;i<cols.length;i++){var s=(cols[i].textContent||'').trim();if(s.length>20&&!/^\d/.test(s)){title=s;break;}}}
+    if(!title)return;
+    var grade=dg(title);
+    if(grade===null)return;
+    var price=0;
+    for(var i=cols.length-1;i>=0;i--){var p=gp(cols[i].textContent);if(p>0.5&&p<500000){price=p;break;}}
+    if(!price)return;
+    cs.push({title:title.slice(0,120),price:price,grade:grade,
+             url:ae?ae.href:'',date:(cols[0].textContent||'').trim().slice(0,20),source:'130point'});
+  });
+}
+if(!cs.length){alert('Comp Collector\n\nNo sold listings found on this page.\n\nMake sure you are on a page showing Sold/Completed listings with results visible.');return;}
+var by={raw:[],psa8:[],psa9:[],psa10:[]};
+cs.forEach(function(c){by[c.grade].push(c.price);});
+var lbl={raw:'Raw',psa8:'PSA 8',psa9:'PSA 9',psa10:'PSA 10'};
+var lines=[];
+['psa10','psa9','psa8','raw'].forEach(function(g){
+  if(!by[g].length)return;
+  var pp=by[g].slice().sort(function(a,b){return a-b;});
+  var lo='$'+pp[0].toFixed(0),hi='$'+pp[pp.length-1].toFixed(0);
+  lines.push(lbl[g]+': '+pp.length+' comp'+(pp.length===1?'':'s')+' ('+lo+(hi!==lo?'–'+hi:'')+')');
+});
+if(!confirm('Comp Collector\n\nFound '+cs.length+' sold comps:\n\n'+lines.join('\n')+'\n\nSend to CardGrade Pro?'))return;
 var xhr=new XMLHttpRequest();
 xhr.open('POST',APP+'/api/import-comps',true);
 xhr.setRequestHeader('Content-Type','application/json');
-xhr.onreadystatechange=function(){if(xhr.readyState===4){if(xhr.status===200){
-  var r=JSON.parse(xhr.responseText);
-  alert('✓ '+r.imported+' '+gl+' comp'+(r.imported===1?'':'s')+' sent!\n('+r.filtered+' filtered)\nMedian: $'+r.median+'\n\nSwitch back to CardGrade Pro and click Calculate.');
-}else{alert('Error: '+(xhr.responseText||'could not send comps'));}}};
-xhr.onerror=function(){alert('Could not connect to CardGrade Pro.\nMake sure the app is open in another tab.');};
-xhr.send(JSON.stringify({grade:g,comps:cs,source:isE?'ebay':'130point',page_url:location.href}));
+xhr.onreadystatechange=function(){
+  if(xhr.readyState!==4)return;
+  if(xhr.status===200){
+    try{var r=JSON.parse(xhr.responseText);
+      alert('✓ Sent to CardGrade Pro!\n\n'+r.summary+'\n\nSwitch back to CardGrade Pro and click ⚡ Calculate.');
+    }catch(e){alert('✓ Comps sent! Switch back to CardGrade Pro.');}
+  }else{
+    alert('Error sending comps (HTTP '+xhr.status+')\n\n'+(xhr.responseText||'Could not reach CardGrade Pro.\nMake sure the app is open in another tab.'));
+  }
+};
+xhr.onerror=function(){alert('Could not connect to CardGrade Pro.\nMake sure the app is open in another tab at:\n'+APP);};
+xhr.send(JSON.stringify({comps:cs,source:isE?'ebay':'130point',page_url:location.href}));
 """.replace("\n", "")
 
 
@@ -399,6 +441,8 @@ def set_card_context():
 
 
 # ── Bookmarklet comp import (called cross-origin from eBay / 130point) ────────
+# Accepts the new multi-grade format: {"comps":[{..., "grade":"psa10"}, ...], "source":"ebay"}
+# Also accepts the legacy single-grade format: {"grade":"psa10", "comps":[...]} for backwards compat.
 
 @app.route("/api/import-comps", methods=["POST", "OPTIONS"])
 def import_comps():
@@ -409,58 +453,73 @@ def import_comps():
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return resp
 
-    data   = request.get_json() or {}
-    grade  = data.get("grade", "raw")
-    comps  = data.get("comps", [])
-    source = data.get("source", "unknown")
-
-    if grade not in ("raw", "psa8", "psa9", "psa10"):
-        resp = jsonify({"error": "Invalid grade"})
-        resp.headers["Access-Control-Allow-Origin"] = "*"
-        return resp, 400
+    data         = request.get_json() or {}
+    raw_comps    = data.get("comps", [])
+    source       = data.get("source", "unknown")
+    legacy_grade = data.get("grade")          # old single-grade bookmarklet format
 
     with _ctx_lock:
         ctx = dict(_card_ctx)
 
-    kept, filtered_out = [], 0
-    for comp in comps:
+    grade_labels   = {"raw": "Raw", "psa8": "PSA 8", "psa9": "PSA 9", "psa10": "PSA 10"}
+    grade_buckets  = {g: [] for g in grade_labels}
+    filtered_total = 0
+
+    for comp in raw_comps:
+        # Per-comp grade (new format) takes priority; fall back to top-level grade field
+        grade = (comp.get("grade") or legacy_grade or "raw").strip()
+        if grade not in grade_buckets:
+            filtered_total += 1
+            continue
         keep, _ = _should_keep(comp, grade, ctx)
         if keep:
-            kept.append(comp)
+            grade_buckets[grade].append(float(comp.get("price", 0)))
         else:
-            filtered_out += 1
+            filtered_total += 1
 
-    prices = sorted(c["price"] for c in kept)
-    if len(prices) >= 4:
-        n = len(prices)
-        q1, q3 = prices[n // 4], prices[(3 * n) // 4]
-        iqr = q3 - q1
-        if iqr > 0:
-            clean = [p for p in prices if (q1 - 1.5 * iqr) <= p <= (q3 + 1.5 * iqr)]
-            if clean:
-                prices = clean
+    # IQR-clean each grade bucket and store
+    summary_parts = []
+    total_imported = 0
+    ts = _time.time()
 
-    grade_labels = {"raw": "Raw", "psa8": "PSA 8", "psa9": "PSA 9", "psa10": "PSA 10"}
-    n = len(prices)
-    if n == 0:
-        resp = jsonify({"imported": 0, "filtered": filtered_out, "grade": grade,
-                        "grade_label": grade_labels[grade], "median": 0,
-                        "prices_csv": "", "count": 0,
-                        "message": "All comps were filtered out."})
+    with _comp_lock:
+        for grade, prices_raw in grade_buckets.items():
+            if not prices_raw:
+                continue
+            prices = sorted(prices_raw)
+            n = len(prices)
+            if n >= 4:
+                q1, q3 = prices[n // 4], prices[(3 * n) // 4]
+                iqr = q3 - q1
+                if iqr > 0:
+                    clean = [p for p in prices if (q1 - 1.5 * iqr) <= p <= (q3 + 1.5 * iqr)]
+                    if clean:
+                        prices = clean
+            n = len(prices)
+            med   = _stats.median(prices)
+            csv_s = ", ".join(str(int(p)) if p == int(p) else f"{p:.2f}" for p in prices)
+            _comp_store[grade] = {
+                "prices_csv": csv_s, "count": n,
+                "median": round(med, 2), "source": source, "ts": ts,
+            }
+            summary_parts.append(f"{n} {grade_labels[grade]} · med ${med:.0f}")
+            total_imported += n
+
+    if total_imported == 0:
+        resp = jsonify({
+            "total": 0, "filtered": filtered_total,
+            "summary": "All comps were filtered out.",
+            "message": "No comps imported after filtering.",
+        })
         resp.headers["Access-Control-Allow-Origin"] = "*"
         return resp
 
-    median = _stats.median(prices)
-    csv_s  = ", ".join(str(int(p)) if p == int(p) else f"{p:.2f}" for p in sorted(prices))
-    with _comp_lock:
-        _comp_store[grade] = {"prices_csv": csv_s, "count": n,
-                              "median": round(median, 2), "source": source,
-                              "ts": _time.time()}
-
-    resp = jsonify({"imported": n, "filtered": filtered_out, "grade": grade,
-                    "grade_label": grade_labels[grade], "median": round(median, 2),
-                    "prices_csv": csv_s, "count": n,
-                    "message": f"{n} {grade_labels[grade]} comps imported."})
+    summary = "  ·  ".join(summary_parts)
+    resp = jsonify({
+        "total": total_imported, "filtered": filtered_total,
+        "summary": summary,
+        "message": f"{total_imported} comps imported: {summary}",
+    })
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 

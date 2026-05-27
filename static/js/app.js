@@ -399,13 +399,38 @@ function _rebuildFromParsed() {
   renderCompPreview(_parsedComps);
 }
 
-// ── Bookmarklet: open sold search + start polling ──────
+// ── Bookmarklet workflow ───────────────────────────────
 function getBaseQuery() {
   const d = getCardData();
   const { player_name: p, year: y, set_name: s, card_number: n, variation: v } = d;
   return [y, p, s, (v && v !== "Base") ? v : "", n ? "#" + n : ""].filter(Boolean).join(" ");
 }
 
+// Primary: open one search for all grades, start polling, instruct user to click bookmarklet
+async function openCombinedSearch() {
+  const data = getCardData();
+  if (!data.player_name && !data.set_name) {
+    showToast("Enter card details first", "error"); return;
+  }
+
+  fetch("/api/set-card-context", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }).catch(() => {});
+
+  const q = getBaseQuery();
+  window.open(
+    "https://www.ebay.com/sch/i.html?" +
+    new URLSearchParams({ _nkw: q, LH_Sold: "1", LH_Complete: "1", _sop: "13" }),
+    "_blank"
+  );
+
+  startCompPoll();
+  _showCompPollStatus("Waiting for Comp Collector… click it in your bookmarks bar on the eBay page.");
+  showToast("eBay opened — click Comp Collector in your bookmarks bar", "info");
+}
+
+// Also keep per-grade search for Advanced section
 async function openSoldSearch(grade) {
   const data = getCardData();
   if (!data.player_name && !data.set_name) { showToast("Enter card details first", "error"); return; }
@@ -422,7 +447,14 @@ async function openSoldSearch(grade) {
 
   startCompPoll();
   const labels = { raw: "Raw", psa8: "PSA 8", psa9: "PSA 9", psa10: "PSA 10" };
-  showToast(`Opened ${labels[grade]} search — click Comp Collector bookmarklet on that page`, "info");
+  showToast(`Opened ${labels[grade]} search — click Comp Collector on that page`, "info");
+}
+
+function _showCompPollStatus(msg) {
+  const el = document.getElementById("bm-poll-status");
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? "" : "none";
 }
 
 function startCompPoll() {
@@ -431,22 +463,29 @@ function startCompPoll() {
     try {
       const result = await (await fetch("/api/comp-poll")).json();
       let anyNew = false;
+      const gradeLabels = { raw: "Raw", psa8: "PSA 8", psa9: "PSA 9", psa10: "PSA 10" };
+      const received = [];
       for (const [grade, gdata] of Object.entries(result)) {
         if (gdata.ts && gdata.ts !== _knownCompTs[grade]) {
           _knownCompTs[grade] = gdata.ts;
           const inp = document.getElementById("comps_" + grade);
           if (inp) inp.value = gdata.prices_csv;
           _setBadge(grade, gdata.count, gdata.median);
+          received.push(`${gdata.count} ${gradeLabels[grade]}`);
           anyNew = true;
         }
       }
       if (anyNew) {
         const detRow = document.getElementById("comp-detection-row");
         if (detRow) detRow.style.display = "";
-        showToast("Comps received! Click ⚡ Calculate.", "success");
-        await calculate();
+        const summary = received.join(", ");
+        _showCompPollStatus(`✓ Received: ${summary} — click ⚡ Calculate below`);
+        showToast(`Comps received: ${summary} — click ⚡ Calculate`, "success");
+        // Scroll to Calculate button
+        const calcBtn = document.getElementById("calc-btn");
+        if (calcBtn) calcBtn.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
-    } catch { /* network hiccup — retry next tick */ }
+    } catch { /* network hiccup */ }
   }, 2000);
 }
 
